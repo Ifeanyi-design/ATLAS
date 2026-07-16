@@ -1,0 +1,281 @@
+import atexit
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+
+from mcp.server.fastmcp import FastMCP
+
+# The MCP process starts at the repository root, while FastAPI lives in backend/.
+BACKEND_PATH = Path(__file__).resolve().parents[1] / "backend"
+if str(BACKEND_PATH) not in sys.path:
+    sys.path.insert(0, str(BACKEND_PATH))
+
+from app.core.config import get_settings
+
+mcp = FastMCP("Atlas")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WINDOWS_DOCKER_CANDIDATES = [
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "bin" / "docker.exe",
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "docker.exe",
+]
+_started_api: subprocess.Popen[bytes] | None = None
+_default_project_id: str | None = None
+_default_session_id = str(uuid.uuid4())
+
+
+def _api_is_available() -> bool:
+    try:
+        with urlopen(f"{get_settings().api_url.rstrip('/')}/api/v1/health", timeout=1) as response:
+            return response.status == 200
+    except (HTTPError, URLError):
+        return False
+
+
+def _stop_started_api() -> None:
+    if _started_api is not None and _started_api.poll() is None:
+        _started_api.terminate()
+
+
+def _find_docker_command() -> str | None:
+    configured = os.environ.get("ATLAS_DOCKER_COMMAND")
+    if configured:
+        return configured
+    discovered = shutil.which("docker")
+    if discovered:
+        return discovered
+    for candidate in WINDOWS_DOCKER_CANDIDATES:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def ensure_managed_local_postgres() -> None:
+    """Restore the Docker database chosen as Atlas-managed local storage."""
+    settings = get_settings()
+    database = urlparse(settings.database_url)
+    is_managed_local_postgres = (
+        settings.storage_mode == "postgres"
+        and settings.auto_start_docker
+        and database.hostname in {"127.0.0.1", "localhost"}
+        and database.port == 5434
+    )
+    docker_command = _find_docker_command()
+    if not is_managed_local_postgres or docker_command is None:
+        return
+    try:
+        subprocess.run(
+            [docker_command, "compose", "up", "-d", "--wait", "db"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            timeout=60,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return
+
+
+def ensure_local_api() -> None:
+    """Start the local API only when Atlas owns it and it is not already running."""
+    global _started_api
+    settings = get_settings()
+    ensure_managed_local_postgres()
+    if _api_is_available():
+        return
+
+    parsed = urlparse(settings.api_url)
+    if not settings.auto_start_api or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        return
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    log_path = PROJECT_ROOT / "work" / "atlas-api.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = log_path.open("a", encoding="utf-8")
+    _started_api = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "app.main:app",
+            "--app-dir",
+            str(PROJECT_ROOT / "backend"),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=PROJECT_ROOT,
+        stdin=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+    )
+    atexit.register(_stop_started_api)
+
+    for _ in range(120):
+        time.sleep(0.25)
+        if _api_is_available():
+            return
+        if _started_api.poll() is not None:
+            break
+    raise RuntimeError(f"Atlas could not start its local API. See {log_path}.")
+
+
+def _project_id(project_id: str | None) -> str:
+    global _default_project_id
+    if project_id:
+        return project_id
+    if _default_project_id:
+        return _default_project_id
+    request = Request(f"{get_settings().api_url.rstrip('/')}/api/v1/projects/default", data=b"", method="POST")
+    with urlopen(request, timeout=30) as response:
+        _default_project_id = str(json.loads(response.read().decode())["project_id"])
+    return _default_project_id
+
+
+def _session_id(session_id: str | None) -> str:
+    return session_id or _default_session_id
+
+
+@mcp.tool()
+def log_decision(exchange: str, project_id: str | None = None, session_id: str | None = None) -> dict[str, Any]:
+    """Extract and persist a material engineering decision; project/session IDs are automatic by default."""
+    ensure_local_api()
+    resolved_project_id = _project_id(project_id)
+    resolved_session_id = _session_id(session_id)
+    payload = json.dumps({"project_id": resolved_project_id, "session_id": resolved_session_id, "exchange": exchange}).encode()
+    request = Request(
+        f"{get_settings().api_url.rstrip('/')}/api/v1/decisions/log",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode()
+        return {"accepted": False, "status": "error", "project_id": resolved_project_id, "session_id": resolved_session_id, "message": detail}
+    except URLError as exc:
+        return {"accepted": False, "status": "unavailable", "project_id": resolved_project_id, "session_id": resolved_session_id, "message": str(exc.reason)}
+
+
+@mcp.tool()
+def get_context(prompt: str, fresh_session: bool = False, project_id: str | None = None, session_id: str | None = None) -> dict[str, Any]:
+    """Get scoped context before work; IDs are automatic unless a specific project/session is supplied."""
+    ensure_local_api()
+    resolved_project_id = _project_id(project_id)
+    resolved_session_id = _session_id(session_id)
+    payload = json.dumps(
+        {"project_id": resolved_project_id, "session_id": resolved_session_id, "prompt": prompt, "fresh_session": fresh_session}
+    ).encode()
+    request = Request(
+        f"{get_settings().api_url.rstrip('/')}/api/v1/context",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode()
+        return {"status": "error", "project_id": resolved_project_id, "session_id": resolved_session_id, "message": detail}
+    except URLError as exc:
+        return {"status": "unavailable", "project_id": resolved_project_id, "session_id": resolved_session_id, "message": str(exc.reason)}
+
+
+@mcp.tool()
+def search(query: str, limit: int = 10, project_id: str | None = None) -> dict[str, Any]:
+    """Explicitly recall relevant project decisions; the current project is automatic by default."""
+    ensure_local_api()
+    resolved_project_id = _project_id(project_id)
+    payload = json.dumps({"project_id": resolved_project_id, "query": query, "limit": min(max(limit, 1), 20)}).encode()
+    request = Request(
+        f"{get_settings().api_url.rstrip('/')}/api/v1/search",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode()
+        return {"status": "error", "project_id": resolved_project_id, "query": query, "message": detail}
+    except URLError as exc:
+        return {"status": "unavailable", "project_id": resolved_project_id, "query": query, "message": str(exc.reason)}
+
+
+@mcp.tool()
+def remove_memory(
+    decision_id: str | None = None,
+    decision_ids: list[str] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    delete_all: bool = False,
+    confirmation: str | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    """Remove selected memories, a UTC time range, or all project memory with exact confirmation."""
+    ensure_local_api()
+    resolved_project_id = _project_id(project_id)
+    selected_ids = list(decision_ids or [])
+    if decision_id is not None:
+        selected_ids.append(decision_id)
+    request = Request(
+        f"{get_settings().api_url.rstrip('/')}/api/v1/memory",
+        data=json.dumps(
+            {
+                "project_id": resolved_project_id,
+                "decision_ids": selected_ids,
+                "start": start,
+                "end": end,
+                "delete_all": delete_all,
+                "confirmation": confirmation,
+            }
+        ).encode(),
+        headers={"Content-Type": "application/json"},
+        method="DELETE",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode()
+        return {"status": "error", "project_id": resolved_project_id, "message": detail}
+    except URLError as exc:
+        return {"status": "unavailable", "project_id": resolved_project_id, "message": str(exc.reason)}
+
+
+@mcp.tool()
+def override_conflict(conflict_event_id: str, reason: str, project_id: str | None = None) -> dict[str, Any]:
+    """Record a deliberate, explained decision to continue despite an Atlas conflict warning."""
+    ensure_local_api()
+    resolved_project_id = _project_id(project_id)
+    payload = json.dumps({"project_id": resolved_project_id, "reason": reason}).encode()
+    request = Request(
+        f"{get_settings().api_url.rstrip('/')}/api/v1/conflicts/{conflict_event_id}/override",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode()
+        return {"status": "error", "project_id": resolved_project_id, "conflict_event_id": conflict_event_id, "message": detail}
+    except URLError as exc:
+        return {"status": "unavailable", "project_id": resolved_project_id, "conflict_event_id": conflict_event_id, "message": str(exc.reason)}
+
+
+if __name__ == "__main__":
+    mcp.run()

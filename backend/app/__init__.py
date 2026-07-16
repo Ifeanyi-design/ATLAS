@@ -1,0 +1,1 @@
+"""Atlas FastAPI application package."""

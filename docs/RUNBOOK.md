@@ -1,0 +1,211 @@
+# Atlas runbook in plain English
+
+This is the non-mystical version of how Atlas runs.
+
+## The story
+
+Imagine you are a developer opening your laptop in the morning.
+
+Atlas has three pieces:
+
+1. **The database** is the notebook. It stores the memories.
+2. **The Atlas API** is the librarian. It knows how to read and write the notebook.
+3. **The Atlas MCP server** is the assistant at your Codex desk. Codex talks to it through MCP tools.
+
+You normally do **not** start the MCP server yourself. Codex starts it from `.codex/config.toml` when you open a fresh task in this project. The MCP server then starts the local Atlas API when it needs it.
+
+What you may need to start yourself is the database dependency:
+
+- SQLite: nothing to start.
+- Cloud PostgreSQL: nothing local to start, but internet/database access must work.
+- Docker PostgreSQL: Docker Desktop must be running.
+
+## The two short commands
+
+From the Atlas project folder in PowerShell, use:
+
+```powershell
+.\atlas setup
+.\atlas doctor
+```
+
+`setup` is only for first-time setup or changing storage. It asks you to choose SQLite, local Docker PostgreSQL, or an existing cloud PostgreSQL database. When you choose cloud PostgreSQL, it asks for the database URL and saves it in this project's `.env` file.
+
+`doctor` only checks the setup. It does not change your memory or database.
+
+For normal daily use, do not run either command. Start Docker Desktop first only if you chose Docker PostgreSQL, then open a fresh Codex task.
+
+## Normal daily flow
+
+There are two different flows: first-time setup and normal daily use.
+
+First-time setup means Atlas has not written `.env` and `.codex/config.toml` for this project yet. Daily use means setup is already done and you are only opening Codex to use memory.
+
+### SQLite
+
+First time:
+
+1. Run `.venv\Scripts\python.exe backend\scripts\setup.py`.
+2. Choose SQLite.
+3. Open Codex in the Atlas project.
+4. Open a fresh task and check `/mcp`.
+
+Daily use:
+
+1. Open Codex in the Atlas project.
+2. Open a fresh task.
+3. Type `/mcp` and confirm `atlas` is listed.
+4. Use Atlas.
+
+### Cloud PostgreSQL
+
+First time:
+
+1. Make sure the internet is working and the database URL is ready.
+2. Run `.venv\Scripts\python.exe backend\scripts\setup.py`.
+3. Choose Existing PostgreSQL URL.
+4. Open Codex in the Atlas project.
+5. Open a fresh task and check `/mcp`.
+
+Daily use:
+
+1. Make sure the internet/database is reachable.
+2. Open Codex in the Atlas project.
+3. Open a fresh task.
+4. Type `/mcp` and confirm `atlas` is listed.
+5. Use Atlas.
+
+### Docker PostgreSQL
+
+First time:
+
+1. Start Docker Desktop.
+2. Wait until Docker says it is running.
+3. Run `.venv\Scripts\python.exe backend\scripts\setup.py`.
+4. Choose Local PostgreSQL.
+5. Open Codex in the Atlas project.
+6. Open a fresh task and check `/mcp`.
+
+Daily use:
+
+1. Start Docker Desktop.
+2. Wait until Docker says it is running.
+3. Open Codex in the Atlas project.
+4. Open a fresh task.
+5. Type `/mcp` and confirm `atlas` is listed.
+6. Use Atlas.
+
+If something feels wrong, run:
+
+```powershell
+.venv\Scripts\python.exe backend\scripts\doctor.py
+```
+
+## Do I run a command before opening Codex?
+
+Usually, no.
+
+Run a command before opening Codex only when you are setting up or debugging:
+
+- First setup: `.venv\Scripts\python.exe backend\scripts\setup.py`
+- Health check: `.venv\Scripts\python.exe backend\scripts\doctor.py`
+- Tests: `.venv\Scripts\python.exe -m pytest backend\tests -q`
+
+For normal use, start the database dependency if needed, then open Codex.
+
+## Sleep, shutdown, and restart
+
+### Sleep
+
+Sleep is like pausing a movie. Windows may keep Docker, ports, and processes alive, or it may quietly break one of them. After wake:
+
+1. Try Atlas normally.
+2. If it fails, run the doctor.
+3. If Docker is the issue, restart Docker Desktop.
+4. Open a fresh Codex task so MCP reconnects cleanly.
+
+Your memory is still in the database.
+
+### Shutdown
+
+Shutdown closes the movie. Local API and MCP processes stop. Docker Desktop also stops. After boot:
+
+1. Start Docker Desktop if using Docker PostgreSQL.
+2. Open Codex in the Atlas project.
+3. Open a fresh task.
+4. Check `/mcp`.
+
+Your memory is still in SQLite, Docker's Postgres volume, or cloud Postgres.
+
+### Restart
+
+Restart is shutdown plus boot. Treat it the same as shutdown:
+
+1. Start Docker Desktop if needed.
+2. Open Codex.
+3. Open a fresh task.
+4. Check `/mcp`.
+
+## Which database should I use for Build Week?
+
+Use **cloud PostgreSQL** if you can set it up quickly and reliably. It avoids Docker Desktop drama during the demo.
+
+Use **SQLite** if you need the fastest, lowest-stress demo. It proves the product story, but it is less impressive for production/storage credibility.
+
+Use **Docker PostgreSQL** if you want a realistic local setup and Docker is behaving on the machine you will demo from.
+
+My Build Week recommendation:
+
+1. Cloud PostgreSQL for the final demo.
+2. SQLite as the emergency fallback.
+3. Docker PostgreSQL only if Docker Desktop is stable that day.
+
+## Using Atlas in another project
+
+Atlas v1 is project-scoped. That means each project needs a small local configuration telling Codex how to start Atlas.
+
+The current v1 path is:
+
+1. Copy or clone the Atlas code into the project that should use Atlas memory, or keep a dedicated Atlas folder for that project.
+2. Run setup once from that folder.
+3. Setup writes that folder's `.env` and `.codex/config.toml`.
+4. Open Codex from that configured folder.
+5. If several projects share one cloud/PostgreSQL database, set a unique `ATLAS_PROJECT_NAME` before the first Atlas call.
+
+This is not perfect product UX. A future version should make this easier with a packaged installer, global service, or plugin. For Build Week, keep v1 honest and project-scoped.
+
+The important part is `.codex/config.toml`: Codex needs that file in the project it opens so it knows how to start the Atlas MCP server. That is why setup must run once per configured project folder.
+
+## Why not build a global Atlas service now?
+
+A global service is a good idea, but it changes the product surface:
+
+- installer or background service
+- cross-project identity
+- project discovery
+- auth and local permissions
+- upgrade and uninstall story
+- more failure modes during the demo
+
+That is too much risk right before Build Week. The better move is to ship a clean project-scoped v1, then pitch the global service as the natural v2.
+
+## Should the UI be prettier?
+
+Yes, but only polish now.
+
+Good v1 UI improvements:
+
+- clearer tabs for Timeline, Conflicts, Design Context, System
+- stronger empty states
+- a visible "doctor status" panel
+- cleaner demo-friendly spacing and typography
+
+Risky v1 UI improvements:
+
+- full redesign
+- animations
+- complex charts
+- settings pages that do not change real behavior
+- multi-project/global admin screens
+
+For Build Week, the UI should make the story obvious in under five minutes.

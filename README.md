@@ -1,0 +1,327 @@
+# Atlas
+
+Atlas is an MCP-powered engineering memory layer for Codex. It records durable project decisions, retrieves only relevant context for new tasks, and warns when a new request contradicts an earlier architectural choice.
+
+Built for OpenAI Build Week in the Developer Tools track, Atlas is not a generic chat memory system. It is a project-scoped guardrail for long-running Codex work: remember decisions, preserve the reason behind them, and keep future agent sessions aligned without replaying whole conversations.
+
+## Why Atlas Exists
+
+Codex is strongest when it has the right context. The hard part is that engineering context changes shape over time:
+
+- one task decides to use PostgreSQL;
+- another task starts fresh and no longer sees that decision;
+- a later prompt asks for MongoDB or a conflicting pattern;
+- the agent can confidently implement the wrong thing because the prior decision is missing.
+
+Atlas solves this by storing decisions as structured project memory. A new Codex task can ask Atlas for relevant context before work begins, search memory during work, and log important decisions after work. If the new prompt conflicts with prior memory, Atlas returns the original decision and reason before the mistake becomes code.
+
+## Core Features
+
+- MCP server for Codex with `get_context`, `log_decision`, `search`, `remove_memory`, and `override_conflict`.
+- Project-scoped memory backed by SQLite, local Docker PostgreSQL, or an existing PostgreSQL database.
+- PostgreSQL + pgvector support for realistic shared/team retrieval.
+- Offline deterministic mode when no OpenAI API key is configured.
+- Optional OpenAI API mode for richer extraction, embeddings, summaries, curation, and conflict checks.
+- Fresh-session mode that injects no prior memory but still permits new decisions to be logged.
+- Structured UI/design context capture and direct injection for UI-related tasks.
+- One-page dashboard for decisions, conflicts, design context, storage state, and estimated context avoided.
+- Doctor command for setup/debug checks before changing storage.
+
+## Architecture
+
+```text
+Codex task
+   |
+   | MCP tools
+   v
+Atlas MCP server
+   |
+   | starts local API on demand
+   v
+FastAPI service
+   |
+   +-- SQLite for simplest local demo
+   +-- PostgreSQL + pgvector for shared or production-like memory
+```
+
+Codex starts the Atlas MCP server from the project-local `.codex/config.toml`. The MCP server starts the local FastAPI service only when a tool call needs it. The database stores projects, sessions, decisions, embeddings, structured design context, and conflict events.
+
+Atlas is intentionally not a background transcript recorder. It stores only material engineering decisions that pass extraction and validation.
+
+## Quick Start for Judges
+
+This path is the fastest way to test Atlas without Docker or cloud setup.
+
+Requirements:
+
+- Windows PowerShell, macOS, or Linux shell.
+- Python 3.11 or newer.
+- Codex with MCP support.
+
+Steps:
+
+```powershell
+py -m venv .venv
+.venv\Scripts\python.exe backend\scripts\setup.py
+```
+
+Choose SQLite when setup asks for storage. Setup installs dependencies into the active virtual environment, writes `.env`, and writes `.codex/config.toml` so Codex can start Atlas.
+
+Then verify:
+
+```powershell
+.venv\Scripts\python.exe backend\scripts\doctor.py
+.venv\Scripts\python.exe -m pytest backend\tests -q
+```
+
+Open a fresh Codex task in this project and check `/mcp`. Atlas should appear as enabled. Use the MCP tools from Codex to test the decision-memory flow.
+
+## Storage Options
+
+| Mode | Best for | Strengths | Limits |
+| --- | --- | --- | --- |
+| SQLite | Fastest judge/demo path | No Docker, no network, single local file | Local JSON embedding ranking instead of pgvector indexes |
+| Local Docker PostgreSQL | Realistic local development | PostgreSQL, pgvector, migrations, durable Docker volume | Docker Desktop must be installed and running |
+| Existing/cloud PostgreSQL | Build Week demo reliability and sharing | Durable outside the laptop, no local Docker dependency, production-like retrieval | Needs database URL and network access |
+
+For a live Build Week demo, cloud PostgreSQL is the strongest story if the database is already stable. SQLite is the safest emergency fallback.
+
+## Setup in Detail
+
+1. Create and activate a virtual environment.
+
+   ```powershell
+   py -m venv .venv
+   ```
+
+2. Run setup.
+
+   ```powershell
+   .venv\Scripts\python.exe backend\scripts\setup.py
+   ```
+
+3. Choose storage:
+
+   - Local Docker PostgreSQL managed by Atlas.
+   - Local Docker PostgreSQL started manually.
+   - Existing PostgreSQL URL.
+   - Local SQLite.
+
+4. Setup writes:
+
+   - `.env` with Atlas settings.
+   - `.codex/config.toml` with the MCP command Codex should run.
+   - `work/.requirements.sha256` so repeated setup runs can skip dependency reinstall when requirements have not changed.
+
+5. Open a fresh Codex task from this project folder. If Codex was already open before setup, close that task and start a new one.
+
+## Doctor Check
+
+When Atlas feels broken, run:
+
+```powershell
+.venv\Scripts\python.exe backend\scripts\doctor.py
+```
+
+The doctor checks:
+
+- supported Python version;
+- active virtual environment;
+- dependency imports;
+- `.codex/config.toml`;
+- selected storage settings;
+- Docker command and daemon where relevant;
+- database connectivity;
+- Alembic migration revision;
+- local API health.
+
+It is normal for the API health check to warn when no Atlas MCP process is currently running. Atlas starts the API on demand.
+
+## Daily Use
+
+After setup, daily use is simple:
+
+1. Start Docker Desktop only if using Docker PostgreSQL.
+2. Open Codex in this project folder.
+3. Open a fresh task.
+4. Confirm `/mcp` lists `atlas`.
+5. Use Atlas tools as part of the Codex workflow.
+
+The local API and MCP process stop when the task ends. Memory remains in SQLite, the Docker PostgreSQL volume, or the configured cloud database.
+
+## MCP Tool Contract
+
+`get_context(prompt, fresh_session=false)`
+
+Retrieves project-scoped memory for a new task. It returns the running summary, relevant decisions, direct UI/design JSON when appropriate, and any conflict warning. When `fresh_session=true`, Atlas returns no injected memory but does not disable future decision logging.
+
+`log_decision(exchange)`
+
+Extracts and stores a material engineering decision, its reason, affected files, embedding, optional structured design context, and the updated running summary. If the exchange contains no real decision, Atlas stores nothing.
+
+`search(query, limit=10)`
+
+Performs explicit mid-task recall against project-scoped decisions.
+
+`remove_memory(...)`
+
+Removes one decision, a list of decisions, a UTC date range, or all project memory. Whole-project deletion requires the exact confirmation phrase `DELETE ALL PROJECT MEMORY`.
+
+`override_conflict(conflict_event_id, reason)`
+
+Records a deliberate, auditable exception when a developer chooses to continue despite a conflict warning.
+
+## Example Decision Capture
+
+Offline deterministic mode works best with explicit decision markers:
+
+```text
+Decision: Use PostgreSQL with pgvector for Atlas memory.
+Reason: It keeps decisions project-scoped and supports local vector retrieval.
+Affected file: backend/app/db.py
+```
+
+For UI work, include structured design context:
+
+```text
+Decision: Use compact dashboard tabs for Atlas memory review.
+Reason: Judges need to scan decisions, conflicts, design evidence, and system state quickly.
+Design context: {"colors":{"accent":"#38d9a9"},"spacing":{"card":12},"components":["tabs","timeline","conflict panel"]}
+Affected file: dashboard/app.js
+```
+
+With `ATLAS_OPENAI_API_KEY`, Atlas can extract decisions from more natural exchanges and use semantic embeddings/model-assisted curation.
+
+## Dashboard
+
+After Atlas starts the local API, open:
+
+[http://127.0.0.1:8000/dashboard/](http://127.0.0.1:8000/dashboard/)
+
+The dashboard shows:
+
+- project selection;
+- newest-first decision timeline;
+- conflict events and override reasons;
+- stored design-context records;
+- active storage and intelligence mode;
+- estimated context avoided.
+
+The context numbers are estimates, not billing claims. Atlas estimates how much context payload was avoided compared with carrying a larger long-session history forward. It does not claim to measure provider cache hits, invisible reasoning tokens, or final invoice savings.
+
+## Project Isolation and Privacy
+
+Every decision, context lookup, search, design-context lookup, deletion, and conflict event is filtered by `project_id`.
+
+The default project is created from the configured project name. If multiple workspaces share one database, set a unique `ATLAS_PROJECT_NAME` in each `.env` before the first Atlas call. Passing a specific `project_id` is an advanced/manual action.
+
+Global memory and linked-project memory are intentionally deferred to v2.
+
+## Using Atlas in Another Project
+
+Atlas v1 is project-scoped. Each project needs its own `.env` and `.codex/config.toml` because Codex discovers MCP servers from project-local configuration.
+
+Simple path:
+
+1. Copy or clone Atlas beside the target project, or keep one dedicated Atlas folder for that project.
+2. Run setup from that folder.
+3. Set a unique `ATLAS_PROJECT_NAME` if sharing one database.
+4. Open Codex from the configured folder.
+
+A global installer or always-on Atlas service is a good v2 direction, but it is deliberately outside the Build Week v1 scope.
+
+## Supported Platforms
+
+Atlas is a local developer tool. The main tested platform for the Build Week submission is Windows with PowerShell and Codex Desktop. The architecture is intentionally portable to macOS and Linux because the backend is Python/FastAPI, the storage choices are SQLite or PostgreSQL, and the MCP server is launched through a project-local command.
+
+Platform notes:
+
+- Windows: primary tested platform.
+- macOS/Linux: expected to work with Python 3.11+, but the setup command examples may need shell-path adjustments.
+- Codex: required for the project-local MCP workflow.
+- Docker Desktop: optional, only needed for local Docker PostgreSQL.
+- OpenAI API key: optional. Atlas runs without it in deterministic offline mode.
+
+## Judge Test Path Without Rebuilding
+
+Judges do not need to rebuild a frontend or run a separate Node process. The dashboard is static JavaScript served by FastAPI.
+
+Fastest test path:
+
+1. Clone the repository.
+2. Run setup and choose SQLite.
+3. Run doctor.
+4. Open Codex in the repository folder and confirm `/mcp` lists `atlas`.
+5. Use explicit `Decision:` / `Reason:` examples to exercise `log_decision`, `get_context`, and `search`.
+6. Open `http://127.0.0.1:8000/dashboard/` after the API starts.
+
+This path tests the full product loop without Docker, cloud credentials, or an OpenAI API key.
+
+## Repository URL
+
+Submission repository:
+
+[https://github.com/Ifeanyi-design/ATLAS](https://github.com/Ifeanyi-design/ATLAS)
+
+If the repository is public, include a license file. If it is private, Devpost requires sharing access with the event addresses listed in the submission form.
+
+## Codex Collaboration
+
+Atlas was built primarily through Codex collaboration during OpenAI Build Week, using GPT-5.6 model sessions for the main implementation work and later Codex sessions for reliability, documentation, and submission polish.
+
+Codex accelerated the work in several places:
+
+- Project planning: turning the initial product idea into a scoped v1 brief, phase plan, and demo spine.
+- Backend implementation: building the FastAPI service, SQLAlchemy models, migrations, storage selection, and API routes.
+- MCP integration: exposing Atlas as Codex tools through `log_decision`, `get_context`, `search`, `remove_memory`, and `override_conflict`.
+- Retrieval and memory behavior: implementing project-scoped recall, fresh-session behavior, structured design-context capture, and conflict detection.
+- Dashboard work: creating a dependency-free dashboard for decisions, conflicts, design context, storage state, and estimated context avoided.
+- Reliability: adding setup recovery, doctor checks, Docker detection, cloud PostgreSQL support, SQLite fallback, and MCP startup fixes.
+- Verification: writing and running focused tests across backend behavior, MCP contracts, storage modes, and restart scenarios.
+
+Key human product decisions:
+
+- Keep Atlas project-scoped for v1 instead of building a risky global service.
+- Store decisions and reasons, not full transcripts.
+- Treat conflicts as warnings with auditable overrides, not silent hard blocks.
+- Support SQLite for frictionless testing and PostgreSQL + pgvector for production-like retrieval.
+- Keep context-savings claims honest by showing estimates rather than claiming measured billing reductions.
+
+GPT-5.6 and Codex contributed most directly to implementation speed, architecture iteration, bug diagnosis, test creation, and documentation. The final submission positioning is intentionally honest: Atlas is an MCP-enforced architectural memory and conflict-warning layer for Codex, not a universal background memory service.
+
+The required Codex `/feedback` session ID is submitted in the Devpost form rather than committed into the public repository.
+
+## Build Week Notes
+
+Atlas is submitted to the OpenAI Build Week Developer Tools track. The core thesis is that long-running agentic development needs durable project decisions, scoped retrieval, and pre-work conflict warnings.
+
+The repository documents:
+
+- the build plan in [docs/PLAN.md](docs/PLAN.md);
+- progress history in [docs/PROGRESS.md](docs/PROGRESS.md);
+- the product brief in [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md);
+- the plain-English runbook in [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+## Five-Minute Local Demo
+
+1. Log a PostgreSQL architectural decision with `log_decision`.
+2. Start a different Codex task and call `get_context` with a related prompt.
+3. Ask to replace PostgreSQL with MongoDB; show the conflict and prior reason.
+4. Call `search("PostgreSQL")` for explicit recall.
+5. Log a UI decision with `Design context: {...}` and show design-context injection.
+6. Call `get_context(..., fresh_session=true)` and show no injected decisions.
+7. Open the dashboard and show timeline, conflict, design context, storage state, and estimated context avoided.
+
+For the polished Build Week recording, use the three-minute flow above: decision capture, fresh-task recall, conflict warning, search, fresh-session mode, and dashboard evidence.
+
+## Repository Map
+
+- `backend/` - FastAPI service, SQLAlchemy models, migrations, services, scripts, and tests.
+- `mcp_server/` - Atlas MCP tool server.
+- `dashboard/` - dependency-free dashboard served by FastAPI.
+- `docs/` - product brief, implementation plan, runbook, and progress log.
+- `infra/` - local PostgreSQL/pgvector provisioning.
+
+## License
+
+This project is intended to be published with the repository license file included. Devpost allows public repositories when they include relevant licensing, or private repositories shared with the required event addresses.

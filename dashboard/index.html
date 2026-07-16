@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Atlas | Engineering Context</title>
+    <link rel="stylesheet" href="/dashboard/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">ATLAS / ENGINEERING CONTEXT</p>
+          <h1>Decision intelligence,<br /><em>without the archaeology.</em></h1>
+        </div>
+        <div id="system-state" class="system-state">Loading system state...</div>
+      </header>
+
+      <section class="controls" aria-label="Dashboard filters">
+        <label>Project <select id="project-select"></select></label>
+        <label>From (UTC) <input id="start-date" type="datetime-local" /></label>
+        <label>To (UTC) <input id="end-date" type="datetime-local" /></label>
+        <button id="refresh" type="button">Show memory</button>
+        <button id="remove-filtered" class="danger-action" type="button">Remove filtered</button>
+        <button id="remove-project" class="danger-action" type="button">Remove project memory</button>
+      </section>
+
+      <p id="error" class="error" hidden></p>
+      <section id="empty" class="empty" hidden></section>
+
+      <div id="content" hidden>
+        <nav class="tabs" aria-label="Dashboard sections">
+          <button class="tab active" type="button" data-tab="overview">Overview</button>
+          <button class="tab" type="button" data-tab="timeline">Timeline</button>
+          <button class="tab" type="button" data-tab="conflicts">Conflicts</button>
+          <button class="tab" type="button" data-tab="design">Design</button>
+          <button class="tab" type="button" data-tab="system">System</button>
+        </nav>
+
+        <section id="tab-overview" class="tab-panel active">
+          <section class="hero-grid">
+            <article class="summary-card">
+              <p class="eyebrow">RUNNING PROJECT SUMMARY</p>
+              <p id="summary" class="summary"></p>
+            </article>
+            <article class="metric-card accent">
+              <p class="eyebrow">FRESH-SESSION CONTEXT AVOIDED</p>
+              <strong id="fresh-tokens">-</strong>
+              <span>estimated input tokens</span>
+            </article>
+            <article class="metric-card">
+              <p class="eyebrow">FOCUSED CONTEXT BUDGET</p>
+              <strong id="focused-tokens">-</strong>
+              <span id="focused-detail"></span>
+            </article>
+          </section>
+        </section>
+
+        <section id="tab-timeline" class="tab-panel active">
+          <article class="panel timeline-panel">
+            <div class="panel-title"><p class="eyebrow">ALL STORED PROJECT MEMORY</p><span id="decision-count"></span></div>
+            <div id="decisions" class="timeline"></div>
+          </article>
+        </section>
+
+        <section id="tab-conflicts" class="tab-panel">
+          <article class="panel conflict-panel">
+            <div class="panel-title"><p class="eyebrow">CONFLICTS CAUGHT</p><span id="conflict-count"></span></div>
+            <div id="conflicts" class="stack"></div>
+          </article>
+        </section>
+
+        <section id="tab-design" class="tab-panel">
+          <article class="panel design-panel">
+            <div class="panel-title"><p class="eyebrow">DESIGN CONTEXT</p><span>direct JSON</span></div>
+            <div id="design-context" class="stack"></div>
+          </article>
+        </section>
+
+        <section id="tab-system" class="tab-panel">
+          <article class="panel system-panel">
+            <div class="panel-title"><p class="eyebrow">RUN FLOW</p><span>what starts what</span></div>
+            <div id="run-flow" class="run-flow"></div>
+          </article>
+        </section>
+
+        <p id="token-method" class="footnote"></p>
+      </div>
+    </main>
+    <script src="/dashboard/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+.env
+.agents/
+.codex/
+.docker-tmp/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+backend/.coverage
+outputs/
+postgres_data/
+work/*.db
+work/*.log
+work/.requirements.sha256
