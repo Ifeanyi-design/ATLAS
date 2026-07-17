@@ -180,6 +180,7 @@ Keep entries short. Update `PLAN.md` checkboxes as work is completed.
 - Rewrote `docs/DEMO_SCRIPT.md` as a real screen-and-voice recording plan under three minutes, including fresh-task recall, conflict warning, decision capture, dashboard evidence, and one saved-memory edit.
 - Added `docs/BUILD_WEEK_SUBMISSION_CHECKLIST.md` with the remaining Devpost material, developer-tool judge path, and final proof steps.
 - Current verification baseline is 37 passing backend tests. The remaining delivery work is a live recorded end-to-end run, public YouTube upload, Devpost fields, and a compiled Windows installer if Inno Setup is installed.
+- Refreshed `README.md` with the current SQLite judge quick start, automatic API-start explanation, dashboard path, and `edit_memory` tool. Added `docs/DEVPOST_SUBMISSION.md` as a ready-to-paste submission description and links checklist.
 
 ## Deferred to v2
 

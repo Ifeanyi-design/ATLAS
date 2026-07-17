@@ -34,7 +34,7 @@ Atlas solves this by storing decisions as structured project memory. A new Codex
 
 ## Core Features
 
-- MCP server for Codex with `get_context`, `log_decision`, `search`, `remove_memory`, and `override_conflict`.
+- MCP server for Codex with `get_context`, `log_decision`, `search`, `edit_memory`, `remove_memory`, and `override_conflict`.
 - Project-scoped memory backed by SQLite, local Docker PostgreSQL, or an existing PostgreSQL database.
 - PostgreSQL + pgvector support for realistic shared/team retrieval.
 - Offline deterministic mode when no OpenAI API key is configured.
@@ -69,31 +69,29 @@ Atlas is intentionally not a background transcript recorder. It stores only mate
 
 ## Quick Start for Judges
 
-This path is the fastest way to test Atlas without Docker or cloud setup.
+This is the current self-contained Windows path. It needs no Docker, cloud database, Node frontend, or OpenAI API key.
 
-Requirements:
+1. Clone the repository and open PowerShell in its root folder.
+2. Create the Python environment and run setup:
 
-- Windows PowerShell, macOS, or Linux shell.
-- Python 3.11 or newer.
-- Codex with MCP support.
+   ```powershell
+   py -3.11 -m venv .venv
+   .\.venv\Scripts\python.exe backend\scripts\setup.py
+   ```
 
-Steps:
+3. Choose **SQLite** when asked. Setup installs dependencies and writes the local `.env` plus `.codex/config.toml`.
+4. Check the installation:
 
-```powershell
-py -m venv .venv
-.venv\Scripts\python.exe backend\scripts\setup.py
-```
+   ```powershell
+   .\.venv\Scripts\python.exe backend\scripts\doctor.py
+   .\.venv\Scripts\python.exe -m pytest backend\tests -q
+   ```
 
-Choose SQLite when setup asks for storage. Setup installs dependencies into the active virtual environment, writes `.env`, and writes `.codex/config.toml` so Codex can start Atlas.
+5. Open a **fresh Codex task** in the repository folder and run `/mcp`; `atlas` should be enabled.
+6. Ask Codex to use Atlas before changing architecture. The first Atlas tool call starts the local API automatically.
+7. Open `http://127.0.0.1:8000/dashboard/` after that first tool call to view the timeline, conflict evidence, design context, and editable saved memory.
 
-Then verify:
-
-```powershell
-.venv\Scripts\python.exe backend\scripts\doctor.py
-.venv\Scripts\python.exe -m pytest backend\tests -q
-```
-
-Open a fresh Codex task in this project and check `/mcp`. Atlas should appear as enabled. Use the MCP tools from Codex to test the decision-memory flow.
+To test the full loop, log a `Decision:` plus `Reason:`, start a fresh task and retrieve context, request a contradictory change, then open the dashboard. See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) for exact demo text.
 
 ## Storage Options
 
@@ -306,18 +304,7 @@ Platform notes:
 
 ## Judge Test Path Without Rebuilding
 
-Judges do not need to rebuild a frontend or run a separate Node process. The dashboard is static JavaScript served by FastAPI.
-
-Fastest test path:
-
-1. Clone the repository.
-2. Run setup and choose SQLite.
-3. Run doctor.
-4. Open Codex in the repository folder and confirm `/mcp` lists `atlas`.
-5. Use explicit `Decision:` / `Reason:` examples to exercise `log_decision`, `get_context`, and `search`.
-6. Open `http://127.0.0.1:8000/dashboard/` after the API starts.
-
-This path tests the full product loop without Docker, cloud credentials, or an OpenAI API key.
+Judges do not need to rebuild a frontend or run a separate Node process. The dashboard is static JavaScript served by FastAPI. Follow **Quick Start for Judges** above, choose SQLite, and use the demo script. This tests the full product loop without Docker, cloud credentials, or an OpenAI API key.
 
 ## Repository URL
 
