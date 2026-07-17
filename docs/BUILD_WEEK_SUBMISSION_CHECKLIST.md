@@ -12,8 +12,8 @@
 ## Developer-tool judge path
 
 - [ ] README has setup, supported-platform, and test instructions.
-- [ ] Include a simple way for judges to test Atlas without rebuilding from scratch. The preferred final form is a compiled `AtlasSetup.exe` plus the existing SQLite path.
-- [ ] Compile and attach/release the installer only after Inno Setup is available; do not include `.env`, databases, or API keys.
+- [x] Compiled `packaging/windows/Output/AtlasSetup.exe` with Inno Setup.
+- [ ] Publish `AtlasSetup.exe` as a GitHub Release asset so judges can download it without rebuilding. Do not include `.env`, databases, or API keys.
 - [ ] Keep `docs/DEMO_SCRIPT.md` aligned with the recorded demo.
 
 ## Final proof before upload

@@ -24,6 +24,14 @@ Use Inno Setup first. It is the simplest way to wrap the PowerShell workflow int
 4. Set `SourceDir` to the Atlas repository folder if needed.
 5. Compile.
 
+The compiled release artifact is:
+
+```text
+packaging\windows\Output\AtlasSetup.exe
+```
+
+Publish that file as a GitHub Release asset so judges can download it without cloning or rebuilding Atlas.
+
 The installer defaults to:
 
 ```text

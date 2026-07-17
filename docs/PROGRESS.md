@@ -181,6 +181,8 @@ Keep entries short. Update `PLAN.md` checkboxes as work is completed.
 - Added `docs/BUILD_WEEK_SUBMISSION_CHECKLIST.md` with the remaining Devpost material, developer-tool judge path, and final proof steps.
 - Current verification baseline is 37 passing backend tests. The remaining delivery work is a live recorded end-to-end run, public YouTube upload, Devpost fields, and a compiled Windows installer if Inno Setup is installed.
 - Refreshed `README.md` with the current SQLite judge quick start, automatic API-start explanation, dashboard path, and `edit_memory` tool. Added `docs/DEVPOST_SUBMISSION.md` as a ready-to-paste submission description and links checklist.
+- Compiled the Inno Setup installer at `packaging/windows/Output/AtlasSetup.exe`. The README now makes the EXE the preferred Windows judge path; publish it as a GitHub Release asset before submission.
+- Clarified trusted-team cloud sharing: each teammate uses the same cloud PostgreSQL URL and project name but runs `atlas attach` locally, so no absolute-path Codex config is copied between computers. Documented Docker ownership, the `atlas-db` container, automatic versus manual startup, and the local `5434 -> 5432` port mapping. Fixed manual Docker setup to apply the schema after the user starts the supplied container.
 
 ## Deferred to v2
 

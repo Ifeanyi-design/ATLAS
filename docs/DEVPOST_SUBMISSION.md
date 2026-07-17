@@ -37,10 +37,11 @@ I used Codex with GPT-5.6 throughout the Build Week implementation: architecture
 
 ## How to test
 
-The repository README contains a self-contained Windows SQLite path. It creates a local Python environment, runs setup, opens a fresh Codex task with the Atlas MCP server, and starts the dashboard on the first Atlas tool call. No Docker, cloud database, or frontend build is required.
+The preferred Windows judge path is the `AtlasSetup.exe` installer published with the project release. It installs Atlas, creates its Python environment, guides the judge through SQLite setup, and lets them attach any small project with `atlas attach`. The README also includes a source fallback. No Docker, cloud database, or frontend build is required.
 
 ## Links to enter in Devpost
 
 - Demo video: [PASTE PUBLIC YOUTUBE URL]
 - Code repository: https://github.com/Ifeanyi-design/ATLAS
+- Windows installer: [PASTE GITHUB RELEASE DOWNLOAD URL FOR AtlasSetup.exe]
 - Codex feedback session ID: [PASTE ID RETURNED BY /feedback]

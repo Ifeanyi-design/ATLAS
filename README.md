@@ -69,7 +69,23 @@ Atlas is intentionally not a background transcript recorder. It stores only mate
 
 ## Quick Start for Judges
 
-This is the current self-contained Windows path. It needs no Docker, cloud database, Node frontend, or OpenAI API key.
+### Preferred Windows path: installer
+
+Download `AtlasSetup.exe` from the project's GitHub Release, run it, select **Add Atlas to my user PATH**, and select **Run Atlas setup now** on the final installer page.
+
+When setup opens, choose **SQLite**. Then create or open a small project folder and attach it:
+
+```powershell
+mkdir C:\AtlasJudgeDemo
+cd C:\AtlasJudgeDemo
+atlas attach . --project-name atlas-judge-demo
+```
+
+Open a **fresh Codex task** in `C:\AtlasJudgeDemo`, run `/mcp` to confirm `atlas` is enabled, then ask Codex to use Atlas before changing architecture. The first Atlas tool call starts the local API. Open `http://127.0.0.1:8000/dashboard/` to view saved memory.
+
+### Source fallback
+
+This is the self-contained Windows path for judges who choose to run from source. It needs no Docker, cloud database, Node frontend, or OpenAI API key.
 
 1. Clone the repository and open PowerShell in its root folder.
 2. Create the Python environment and run setup:
@@ -238,6 +254,21 @@ Every decision, context lookup, search, design-context lookup, deletion, and con
 The default project is created from the configured project name. If multiple workspaces share one database, set a unique `ATLAS_PROJECT_NAME` in each `.env` before the first Atlas call. Passing a specific `project_id` is an advanced/manual action.
 
 Global memory and linked-project memory are intentionally deferred to v2.
+
+### Shared cloud memory for a team
+
+Teams can share one project's Atlas memory today by using the same cloud PostgreSQL database URL and the same `--project-name` on every member's machine. Each teammate installs Atlas locally, chooses **Existing PostgreSQL URL** during `atlas setup`, then runs:
+
+```powershell
+cd C:\path\to\the\team-project
+atlas attach . --project-name bizlive-dashboard
+```
+
+Do not copy another teammate's `.codex/config.toml`; it contains an absolute path to that person's Atlas installation. `atlas attach` generates the correct local config for each person. The shared project name resolves to the same project ID in the common database. Atlas v1 assumes a trusted team and does not yet provide per-user roles or project permissions.
+
+### Docker port and ownership
+
+Atlas's supplied local Docker database is named `atlas-db` in Docker Desktop. It maps **host port 5434** to PostgreSQL's internal port **5432**. Option 1 in setup manages `docker compose up -d --wait db` on Atlas use; Docker Desktop must still be installed and running. Option 2 expects the user to run `docker compose up -d db` from the Atlas install folder first, then Atlas applies its schema but does not automatically restart Docker later.
 
 ## Global Install and Project Attach
 

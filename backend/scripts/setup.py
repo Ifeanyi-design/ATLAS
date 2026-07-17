@@ -127,7 +127,10 @@ def choose_storage() -> tuple[str, str, bool, bool, bool]:
         if choice == "1":
             return "postgres", LOCAL_POSTGRES_URL, True, True, True
         if choice == "2":
-            return "postgres", LOCAL_POSTGRES_URL, False, False, False
+            # The user has already started the same compose database manually.
+            # Apply the schema now; if it is still unavailable, the existing
+            # PostgreSQL recovery message tells them how to retry safely.
+            return "postgres", LOCAL_POSTGRES_URL, False, True, False
         if choice == "3":
             return "postgres", input("PostgreSQL SQLAlchemy URL: ").strip(), False, _should_migrate_existing_database(), False
         if choice == "4":
@@ -219,9 +222,7 @@ def main() -> None:
             else:
                 print("Atlas kept your PostgreSQL configuration, but could not apply the schema automatically.")
                 print(f"Details: {exc}")
-                print("Start the database or correct the URL, then rerun setup and choose schema migration.")
-    elif storage_mode == "postgres":
-        print("Atlas saved the PostgreSQL choice. Start Docker yourself, then rerun setup and choose automatic migration when ready.")
+                print("Start the database or correct the URL, then rerun setup and choose the PostgreSQL option again.")
     print(f"Atlas is configured for {storage_mode}. Open a new Codex task in this project; its Atlas MCP server will start the local API automatically.")
 
 

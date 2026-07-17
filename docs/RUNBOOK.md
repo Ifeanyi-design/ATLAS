@@ -81,6 +81,23 @@ Daily use:
 4. Type `/mcp` and confirm `atlas` is listed.
 5. Use Atlas.
 
+### Shared cloud project for a team
+
+This works today for a trusted team. Every member runs their own local Atlas MCP/API process, but those local processes use the same cloud PostgreSQL database and the same Atlas project name. That means they resolve the same `projects` row and share its saved decisions.
+
+Each teammate should do this on their own computer:
+
+```powershell
+# First, install Atlas and run `atlas setup`.
+# Choose Existing PostgreSQL URL and use the team's shared database URL.
+cd C:\path\to\the\cloned-team-project
+atlas attach . --project-name bizlive-dashboard
+```
+
+Use exactly the same project name for the same shared room. Do **not** copy another person's `.codex/config.toml`, because it contains that person's absolute Atlas install path. `atlas attach` writes the correct local path for each teammate.
+
+The first person initializes the database schema. Later teammates can use the same cloud URL without running migrations again. Atlas v1 is a trusted-team setup: anyone with the cloud database credentials and the project name can access that project memory. It does not yet have per-user roles or project-level access control.
+
 ### Docker PostgreSQL
 
 First time:
@@ -100,6 +117,19 @@ Daily use:
 4. Open a fresh task.
 5. Type `/mcp` and confirm `atlas` is listed.
 6. Use Atlas.
+
+#### What the Docker choices mean
+
+- **Option 1 - Atlas starts Docker:** Atlas runs `docker compose up -d --wait db` when an Atlas tool is used. Docker Desktop itself still has to be installed and running. In Docker Desktop, the database appears as the `atlas-db` container.
+- **Option 2 - I start Docker myself:** from the Atlas install folder, run `docker compose up -d db`, then run `atlas setup` and choose option 2. Atlas applies its schema but will not automatically restart the container later.
+
+The supplied local Compose setup maps host port **5434** to PostgreSQL's container port **5432**. Atlas therefore expects this local database URL:
+
+```text
+postgresql+psycopg://atlas:atlas@127.0.0.1:5434/atlas
+```
+
+You can inspect the container, port mapping, and logs in Docker Desktop. `atlas doctor` also reports whether Docker is installed, the daemon is reachable, and whether Atlas is configured for managed Docker.
 
 If something feels wrong, run:
 
