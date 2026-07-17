@@ -8,7 +8,8 @@ from app.dashboard import dashboard_snapshot
 from app.db import Base
 from app.models import ConflictEvent, Decision, DesignContext, Project
 from app.retrieval import _vector_candidates
-from app.api.routes import DeleteDecisionRequest, RemoveMemoryRequest, remove_decision, remove_memories
+from app.api.routes import DeleteDecisionRequest, RemoveMemoryRequest, UpdateDecisionRequest, remove_decision, remove_memories, update_decision
+from app.intelligence import OfflineIntelligence
 
 
 def test_sqlite_schema_stores_json_embeddings_and_ranks_locally() -> None:
@@ -145,3 +146,51 @@ def test_bulk_memory_removal_supports_ids_ranges_and_whole_project_confirmation(
         removed_all = remove_memories(RemoveMemoryRequest(project_id=str(second_project.id), delete_all=True, confirmation="DELETE ALL PROJECT MEMORY"), db)
         assert removed_all["removed_decisions"] == 1
         assert db.get(Decision, other.id) is None
+
+
+def test_editing_memory_is_project_scoped_and_rebuilds_summary_and_embedding() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    first_project = Project(id=uuid.uuid4(), name="editable-atlas", summary="outdated")
+    second_project = Project(id=uuid.uuid4(), name="other-editable-atlas")
+
+    with Session(engine) as db:
+        db.add_all([first_project, second_project])
+        db.flush()
+        first = Decision(project_id=first_project.id, decision="Use the old dashboard.", reason="Initial choice.", embedding=[1.0])
+        second = Decision(project_id=first_project.id, decision="Keep memory local.", reason="Simple setup.", embedding=[1.0])
+        foreign = Decision(project_id=second_project.id, decision="Do not expose this.", reason="Separate project.", embedding=[1.0])
+        db.add_all([first, second, foreign])
+        db.commit()
+
+        result = update_decision(
+            str(first.id),
+            UpdateDecisionRequest(
+                project_id=str(first_project.id),
+                decision="Use the editable web dashboard.",
+                reason="It makes saved context reviewable.",
+                affected_files=["dashboard/app.js", "dashboard/app.js", "dashboard/index.html"],
+            ),
+            db,
+            OfflineIntelligence(),
+        )
+
+        db.refresh(first)
+        db.refresh(first_project)
+        assert result["status"] == "updated"
+        assert first.affected_files == ["dashboard/app.js", "dashboard/index.html"]
+        assert first.embedding != [1.0]
+        assert "Use the editable web dashboard." in first_project.summary
+        assert "Keep memory local." in first_project.summary
+        assert "old dashboard" not in first_project.summary
+
+        try:
+            update_decision(
+                str(foreign.id),
+                UpdateDecisionRequest(project_id=str(first_project.id), reason="Attempt cross-project edit."),
+                db,
+                OfflineIntelligence(),
+            )
+            assert False, "cross-project edit should fail"
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 404

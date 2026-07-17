@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     api_url: str = "http://127.0.0.1:8000"
     auto_start_api: bool = True
     auto_start_docker: bool = False
+    dashboard_pin: SecretStr | None = None
     openai_api_key: SecretStr | None = None
     extraction_model: str = "gpt-5-mini"
     summary_model: str = "gpt-5-mini"

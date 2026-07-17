@@ -94,3 +94,16 @@ def capture_decision(
     project.summary = running_summary
     db.commit()
     return CaptureResult(True, "stored", project_id, session_id, str(decision.id), running_summary)
+
+
+def rebuild_project_summary(db: Session, intelligence: DecisionIntelligence, project: Project) -> str:
+    """Recreate a project's summary from its current saved decisions.
+
+    This is used after an edit or deletion so the summary cannot retain text
+    from a memory that no longer exists in the database.
+    """
+    summary: str | None = None
+    decisions = db.query(Decision).filter(Decision.project_id == project.id).order_by(Decision.created_at.asc()).all()
+    for decision in decisions:
+        summary = intelligence.update_summary(summary, decision.decision, decision.reason)
+    return summary or ""

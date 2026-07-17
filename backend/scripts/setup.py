@@ -171,12 +171,16 @@ def write_codex_config() -> None:
     CODEX_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     python_path = Path(sys.executable).resolve().as_posix()
     project_path = PROJECT_ROOT.as_posix()
+    project_name = PROJECT_ROOT.name
     try:
         CODEX_CONFIG_PATH.write_text(
             "[mcp_servers.atlas]\n"
             f'command = "{python_path}"\n'
             'args = ["-m", "mcp_server.server"]\n'
-            f'cwd = "{project_path}"\n',
+            f'cwd = "{project_path}"\n'
+            "\n"
+            "[mcp_servers.atlas.env]\n"
+            f'ATLAS_PROJECT_NAME = "{project_name}"\n',
             encoding="utf-8",
         )
     except PermissionError as exc:

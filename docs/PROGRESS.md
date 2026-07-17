@@ -146,6 +146,35 @@ Keep entries short. Update `PLAN.md` checkboxes as work is completed.
 - Created the missing PostgreSQL project row for `258f905c-06d1-4913-bb29-d59439e73c0f` and successfully stored decision `858bf5b8-9c0e-49fe-a965-1b9eeb743825` through `log_decision`.
 - Verified `python -m compileall -q backend mcp_server` and `.venv\Scripts\python.exe -m pytest backend\tests\test_mcp_contract.py -q`: 2 passed.
 
+## 2026-07-17 - Global install and attach workflow started
+
+- Added the first global-install path: the MCP now sends its configured `ATLAS_PROJECT_NAME` to the API when creating the default project, so one running Atlas API can serve many attached Codex projects without logging everything under the API install folder's project name.
+- Added `atlas attach`, which writes a project-local `.codex/config.toml` pointing to the shared Atlas install and setting `[mcp_servers.atlas.env] ATLAS_PROJECT_NAME`.
+- Updated `atlas setup` through `atlas.cmd` to create `.venv` automatically when it is missing, then run the existing setup flow inside that environment.
+- Added optional `ATLAS_DASHBOARD_PIN` protection for non-health API access; the dashboard prompts for the PIN and the MCP sends it automatically when configured.
+- Captured the roadmap in `docs/GLOBAL_INSTALL_AND_ATTACH_PLAN.md`. Verified `python -m compileall -q backend mcp_server` and `.venv\Scripts\python.exe -m pytest backend\tests -q --basetemp work\atlas-pytest`: 36 passed.
+
+## 2026-07-17 - Install packaging and stop command started
+
+- Added `atlas stop`, which stops the configured local Atlas API only after confirming the health endpoint identifies as `atlas-api`.
+- Added `install-atlas.ps1` as the first Windows packaging path. It copies Atlas program files to a stable install folder, skips local state like `.env`, `.venv`, `.codex`, `.git`, and `work`, creates `.venv`, and can add the install folder to the user PATH.
+- Updated README and the runbook to describe install-once, attach-many, PATH usage, `atlas stop`, and optional dashboard PIN behavior. Automatic idle shutdown remains deferred.
+- Verified `python -m compileall -q backend mcp_server`, `install-atlas.ps1` PowerShell parsing, `atlas stop` on an empty port, and `.venv\Scripts\python.exe -m pytest backend\tests -q --basetemp work\atlas-pytest`: 36 passed.
+
+## 2026-07-17 - Installer PATH correction and packaging direction
+
+- Fixed `install-atlas.ps1` so a failed `py -3.11` probe does not abort the installer before the PATH prompt. This matched the observed install log where setup continued manually but PATH was never added.
+- Refreshed the installed `C:\Users\Admin\Atlas` folder and set the normal Admin user PATH to include `C:\Users\Admin\Atlas`; open a new terminal before using `atlas` from another project.
+- Added `packaging/windows/` with an Inno Setup script and packaging notes. Inno Setup is the recommended first EXE installer path; MSI/WiX is deferred until Atlas needs enterprise installer behavior.
+- Recorded editable memory as the next feature slice: API/dashboard/tool edits must recompute embeddings and rebuild the running summary instead of editing raw rows only.
+
+## 2026-07-17 - Editable memory and installer-location safety
+
+- Implemented project-scoped saved-memory editing through `PATCH /api/v1/decisions/{decision_id}`, the dashboard's Edit memory form, and the MCP `edit_memory` tool. Each save recomputes the embedding and rebuilds the running summary from the project's current decisions.
+- Kept MCP edits intentionally ID-based: use `search` to find a memory, then call `edit_memory` with its exact ID. This avoids changing a fuzzy match by mistake.
+- Updated the Inno Setup path so it passes the chosen `{app}` install directory to PATH setup, avoids a hidden PowerShell prompt, and excludes previous installer output from the package source. A later `atlas attach` always writes the actual install location into that project's Codex config.
+- Verified focused storage and MCP tests: 8 passed.
+
 ## Deferred to v2
 
 - Knowledge graphs, confidence scoring, time travel, full CLI, background watching, multi-model sharing, linked-project memory, and recency/importance weighting.

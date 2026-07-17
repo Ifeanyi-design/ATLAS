@@ -20,20 +20,26 @@ What you may need to start yourself is the database dependency:
 - Cloud PostgreSQL: nothing local to start, but internet/database access must work.
 - Docker PostgreSQL: Docker Desktop must be running.
 
-## The two short commands
+## The short commands
 
-From the Atlas project folder in PowerShell, use:
+From the Atlas install folder in PowerShell, use:
 
 ```powershell
 .\atlas setup
+.\atlas attach C:\path\to\project --project-name project-name
 .\atlas doctor
+.\atlas stop
 ```
 
 `setup` is only for first-time setup or changing storage. It asks you to choose SQLite, local Docker PostgreSQL, or an existing cloud PostgreSQL database. When you choose cloud PostgreSQL, it asks for the database URL and saves it in this project's `.env` file.
 
+`attach` writes a project-local `.codex/config.toml` so Codex can start the shared Atlas MCP server for that project. It also writes `ATLAS_PROJECT_NAME` into the MCP env block, so a shared API keeps project memory separated by name and ID.
+
 `doctor` only checks the setup. It does not change your memory or database.
 
-For normal daily use, do not run either command. Start Docker Desktop first only if you chose Docker PostgreSQL, then open a fresh Codex task.
+`stop` stops the local Atlas API when it is listening on the configured local port and identifies as `atlas-api`.
+
+For normal daily use, you usually do not need to run a command. Start Docker Desktop first only if you chose Docker PostgreSQL, then open a fresh Codex task.
 
 ## Normal daily flow
 
@@ -162,23 +168,33 @@ My Build Week recommendation:
 
 ## Using Atlas in another project
 
-Atlas v1 is project-scoped. That means each project needs a small local configuration telling Codex how to start Atlas.
+Atlas is project-scoped, but the Atlas code does not need to live inside every project. The preferred workflow is one install folder and many attached projects.
 
-The current v1 path is:
+One-time install:
 
-1. Copy or clone the Atlas code into the project that should use Atlas memory, or keep a dedicated Atlas folder for that project.
-2. Run setup once from that folder.
-3. Setup writes that folder's `.env` and `.codex/config.toml`.
-4. Open Codex from that configured folder.
-5. If several projects share one cloud/PostgreSQL database, set a unique `ATLAS_PROJECT_NAME` before the first Atlas call.
+```powershell
+.\install-atlas.ps1 -InstallDir "$env:USERPROFILE\Atlas"
+cd "$env:USERPROFILE\Atlas"
+.\atlas setup
+```
 
-This is not perfect product UX. A future version should make this easier with a packaged installer, global service, or plugin. For Build Week, keep v1 honest and project-scoped.
+Per project:
 
-The important part is `.codex/config.toml`: Codex needs that file in the project it opens so it knows how to start the Atlas MCP server. That is why setup must run once per configured project folder.
+```powershell
+atlas attach C:\path\to\project --project-name project-name
+```
 
-## Why not build a global Atlas service now?
+If Atlas is not on PATH, use the full path:
 
-A global service is a good idea, but it changes the product surface:
+```powershell
+C:\Users\Admin\Atlas\atlas attach C:\path\to\project --project-name project-name
+```
+
+The important part is `.codex/config.toml`: Codex needs that file in the project it opens so it knows how to start the Atlas MCP server. The attached config points to the shared Atlas install and passes the project name through `[mcp_servers.atlas.env]`.
+
+## Why not build a background service now?
+
+The shared install and `attach` workflow give Atlas one install folder and many project rooms. A true always-on background service is a separate product step because it changes the surface:
 
 - installer or background service
 - cross-project identity
@@ -187,7 +203,7 @@ A global service is a good idea, but it changes the product surface:
 - upgrade and uninstall story
 - more failure modes during the demo
 
-That is too much risk right before Build Week. The better move is to ship a clean project-scoped v1, then pitch the global service as the natural v2.
+The current path keeps the simpler Codex-started MCP/API lifecycle. A background Windows service, tray app, or setup UI can come later after the command workflow is stable.
 
 ## Should the UI be prettier?
 

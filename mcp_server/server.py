@@ -40,6 +40,16 @@ def _api_is_available() -> bool:
         return False
 
 
+def _headers(content_type: bool = True) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if content_type:
+        headers["Content-Type"] = "application/json"
+    dashboard_pin = get_settings().dashboard_pin
+    if dashboard_pin is not None:
+        headers["X-Atlas-Dashboard-Pin"] = dashboard_pin.get_secret_value()
+    return headers
+
+
 def _stop_started_api() -> None:
     if _started_api is not None and _started_api.poll() is None:
         _started_api.terminate()
@@ -134,7 +144,13 @@ def _project_id(project_id: str | None) -> str:
         return project_id
     if _default_project_id:
         return _default_project_id
-    request = Request(f"{get_settings().api_url.rstrip('/')}/api/v1/projects/default", data=b"", method="POST")
+    payload = json.dumps({"project_name": get_settings().project_name}).encode()
+    request = Request(
+        f"{get_settings().api_url.rstrip('/')}/api/v1/projects/default",
+        data=payload,
+        headers=_headers(),
+        method="POST",
+    )
     with urlopen(request, timeout=30) as response:
         _default_project_id = str(json.loads(response.read().decode())["project_id"])
     return _default_project_id
@@ -154,7 +170,7 @@ def log_decision(exchange: str, project_id: str | None = None, session_id: str |
     request = Request(
         f"{get_settings().api_url.rstrip('/')}/api/v1/decisions/log",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=_headers(),
         method="POST",
     )
     try:
@@ -179,7 +195,7 @@ def get_context(prompt: str, fresh_session: bool = False, project_id: str | None
     request = Request(
         f"{get_settings().api_url.rstrip('/')}/api/v1/context",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=_headers(),
         method="POST",
     )
     try:
@@ -201,7 +217,7 @@ def search(query: str, limit: int = 10, project_id: str | None = None) -> dict[s
     request = Request(
         f"{get_settings().api_url.rstrip('/')}/api/v1/search",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=_headers(),
         method="POST",
     )
     try:
@@ -245,6 +261,7 @@ def remove_memory(
         headers={"Content-Type": "application/json"},
         method="DELETE",
     )
+    request.headers.update(_headers(content_type=False))
     try:
         with urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode())
@@ -256,6 +273,41 @@ def remove_memory(
 
 
 @mcp.tool()
+def edit_memory(
+    decision_id: str,
+    decision: str | None = None,
+    reason: str | None = None,
+    affected_files: list[str] | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    """Edit a known saved memory by ID. Use search first when you need to find its ID."""
+    ensure_local_api()
+    resolved_project_id = _project_id(project_id)
+    payload = json.dumps(
+        {
+            "project_id": resolved_project_id,
+            "decision": decision,
+            "reason": reason,
+            "affected_files": affected_files,
+        }
+    ).encode()
+    request = Request(
+        f"{get_settings().api_url.rstrip('/')}/api/v1/decisions/{decision_id}",
+        data=payload,
+        headers=_headers(),
+        method="PATCH",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode()
+        return {"status": "error", "project_id": resolved_project_id, "decision_id": decision_id, "message": detail}
+    except URLError as exc:
+        return {"status": "unavailable", "project_id": resolved_project_id, "decision_id": decision_id, "message": str(exc.reason)}
+
+
+@mcp.tool()
 def override_conflict(conflict_event_id: str, reason: str, project_id: str | None = None) -> dict[str, Any]:
     """Record a deliberate, explained decision to continue despite an Atlas conflict warning."""
     ensure_local_api()
@@ -264,7 +316,7 @@ def override_conflict(conflict_event_id: str, reason: str, project_id: str | Non
     request = Request(
         f"{get_settings().api_url.rstrip('/')}/api/v1/conflicts/{conflict_event_id}/override",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=_headers(),
         method="POST",
     )
     try:

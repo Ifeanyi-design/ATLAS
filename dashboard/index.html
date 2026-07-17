@@ -87,6 +87,26 @@
         <p id="token-method" class="footnote"></p>
       </div>
     </main>
+    <dialog id="edit-memory-dialog" class="edit-dialog" aria-labelledby="edit-memory-title">
+      <form id="edit-memory-form" method="dialog">
+        <header class="dialog-title">
+          <div>
+            <p class="eyebrow">EDIT SAVED MEMORY</p>
+            <h2 id="edit-memory-title">Update decision</h2>
+          </div>
+          <button id="cancel-edit" class="dialog-close" type="button" aria-label="Cancel editing">×</button>
+        </header>
+        <input id="edit-decision-id" type="hidden" />
+        <label>Decision <textarea id="edit-decision" required maxlength="5000"></textarea></label>
+        <label>Reason <textarea id="edit-reason" required maxlength="5000"></textarea></label>
+        <label>Affected files <span class="field-help">One file path per line (optional)</span><textarea id="edit-files" rows="4" maxlength="10000"></textarea></label>
+        <p class="field-help">Saving updates this memory's retrieval embedding and rebuilds the project's running summary.</p>
+        <div class="dialog-actions">
+          <button id="save-edit" type="submit">Save memory</button>
+          <button id="cancel-edit-secondary" class="secondary-action" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
     <script src="/dashboard/app.js"></script>
   </body>
 </html>

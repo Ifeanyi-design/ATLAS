@@ -1,14 +1,15 @@
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.decision_capture import CaptureError, capture_decision
+from app.decision_capture import CaptureError, capture_decision, rebuild_project_summary
 from app.core.config import get_settings
 from app.dashboard import dashboard_snapshot, list_projects
 from app.intelligence import DecisionIntelligence, IntelligenceError, OfflineIntelligence, OpenAIIntelligence
@@ -46,6 +47,17 @@ class DeleteDecisionRequest(BaseModel):
     project_id: str
 
 
+class UpdateDecisionRequest(BaseModel):
+    project_id: str
+    decision: str | None = Field(default=None, min_length=1, max_length=5000)
+    reason: str | None = Field(default=None, min_length=1, max_length=5000)
+    affected_files: list[str] | None = Field(default=None, max_length=100)
+
+
+class DefaultProjectRequest(BaseModel):
+    project_name: str | None = Field(default=None, min_length=1, max_length=200)
+
+
 class RemoveMemoryRequest(BaseModel):
     project_id: str
     decision_ids: list[str] = Field(default_factory=list, max_length=100)
@@ -62,6 +74,16 @@ def get_intelligence() -> DecisionIntelligence:
     return OfflineIntelligence()
 
 
+def require_atlas_pin(x_atlas_dashboard_pin: Annotated[str | None, Header()] = None) -> None:
+    """Require the optional local dashboard PIN for non-health API access."""
+    configured = get_settings().dashboard_pin
+    if configured is None:
+        return
+    expected = configured.get_secret_value()
+    if not x_atlas_dashboard_pin or not secrets.compare_digest(x_atlas_dashboard_pin, expected):
+        raise HTTPException(status_code=401, detail="Atlas dashboard PIN required")
+
+
 @router.get("/health", tags=["system"])
 def health_check() -> dict[str, str]:
     return {
@@ -72,25 +94,34 @@ def health_check() -> dict[str, str]:
     }
 
 
-@router.post("/projects/default", tags=["projects"])
-def get_or_create_default_project(db: Annotated[Session, Depends(get_db)]) -> dict[str, str]:
-    """Return the project bound to this project-local Atlas configuration."""
+@router.post("/projects/default", tags=["projects"], dependencies=[Depends(require_atlas_pin)])
+def get_or_create_default_project(
+    db: Annotated[Session, Depends(get_db)],
+    request: DefaultProjectRequest | None = Body(default=None),
+) -> dict[str, str]:
+    """Return the project requested by the calling MCP configuration."""
     settings = get_settings()
-    project = db.scalar(select(Project).where(Project.name == settings.project_name))
+    requested_name = request.project_name if request is not None else None
+    project_name = (requested_name or settings.project_name).strip()
+    if not project_name:
+        project_name = settings.project_name
+    project = db.scalar(select(Project).where(Project.name == project_name))
     if project is None:
-        project = Project(name=settings.project_name, summary="")
+        project = Project(name=project_name, summary="")
         db.add(project)
         db.commit()
         db.refresh(project)
     return {"project_id": str(project.id), "project_name": project.name}
 
 
-@router.get("/projects", tags=["dashboard"])
-def projects(db: Annotated[Session, Depends(get_db)]) -> dict[str, list[dict[str, str]]]:
+@router.get("/projects", tags=["dashboard"], dependencies=[Depends(require_atlas_pin)])
+def projects(
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, list[dict[str, str]]]:
     return {"projects": list_projects(db)}
 
 
-@router.get("/dashboard", tags=["dashboard"])
+@router.get("/dashboard", tags=["dashboard"], dependencies=[Depends(require_atlas_pin)])
 def dashboard(
     project_id: str,
     start: datetime | None = None,
@@ -173,7 +204,7 @@ def _remove_memories(request: RemoveMemoryRequest, db: Session) -> dict[str, str
     }
 
 
-@router.delete("/decisions/{decision_id}", tags=["decisions"])
+@router.delete("/decisions/{decision_id}", tags=["decisions"], dependencies=[Depends(require_atlas_pin)])
 def remove_decision(
     decision_id: str,
     request: DeleteDecisionRequest,
@@ -183,13 +214,71 @@ def remove_decision(
     return _remove_memories(RemoveMemoryRequest(project_id=request.project_id, decision_ids=[decision_id]), db)
 
 
-@router.delete("/memory", tags=["decisions"])
-def remove_memories(request: RemoveMemoryRequest, db: Annotated[Session, Depends(get_db)]) -> dict[str, str | int]:
+@router.delete("/memory", tags=["decisions"], dependencies=[Depends(require_atlas_pin)])
+def remove_memories(
+    request: RemoveMemoryRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, str | int]:
     """Remove selected memory IDs, a UTC date range, or all memory after confirmation."""
     return _remove_memories(request, db)
 
 
-@router.post("/decisions/log", tags=["decisions"])
+@router.patch("/decisions/{decision_id}", tags=["decisions"], dependencies=[Depends(require_atlas_pin)])
+def update_decision(
+    decision_id: str,
+    request: UpdateDecisionRequest,
+    db: Annotated[Session, Depends(get_db)],
+    intelligence: Annotated[DecisionIntelligence, Depends(get_intelligence)],
+) -> dict[str, object]:
+    """Edit one saved memory while keeping retrieval and the project summary current."""
+    if request.decision is None and request.reason is None and request.affected_files is None:
+        raise HTTPException(status_code=400, detail="provide a decision, reason, or affected_files to update")
+    if request.decision is not None and not request.decision.strip():
+        raise HTTPException(status_code=400, detail="decision cannot be blank")
+    if request.reason is not None and not request.reason.strip():
+        raise HTTPException(status_code=400, detail="reason cannot be blank")
+    try:
+        project_uuid = uuid.UUID(request.project_id)
+        memory_uuid = uuid.UUID(decision_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="decision_id and project_id must be UUIDs") from exc
+
+    project = db.get(Project, project_uuid)
+    decision = db.get(Decision, memory_uuid)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project was not found")
+    if decision is None or decision.project_id != project_uuid:
+        raise HTTPException(status_code=404, detail="decision was not found for this project")
+
+    if request.decision is not None:
+        decision.decision = request.decision.strip()
+    if request.reason is not None:
+        decision.reason = request.reason.strip()
+    if request.affected_files is not None:
+        decision.affected_files = list(dict.fromkeys(path.strip().replace("\\", "/") for path in request.affected_files if path.strip()))
+
+    try:
+        decision.embedding = intelligence.embed(decision.decision, decision.reason)
+        project.summary = rebuild_project_summary(db, intelligence, project)
+        db.commit()
+        db.refresh(decision)
+        return {
+            "status": "updated",
+            "project_id": request.project_id,
+            "decision": {
+                "id": str(decision.id),
+                "decision": decision.decision,
+                "reason": decision.reason,
+                "affected_files": decision.affected_files,
+            },
+            "running_summary": project.summary,
+        }
+    except IntelligenceError as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/decisions/log", tags=["decisions"], dependencies=[Depends(require_atlas_pin)])
 def log_decision(
     request: LogDecisionRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -205,7 +294,7 @@ def log_decision(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post("/context", tags=["context"])
+@router.post("/context", tags=["context"], dependencies=[Depends(require_atlas_pin)])
 def get_context(
     request: GetContextRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -219,7 +308,7 @@ def get_context(
         raise HTTPException(status_code=404 if str(exc) == "project was not found" else 400, detail=str(exc)) from exc
 
 
-@router.post("/search", tags=["context"])
+@router.post("/search", tags=["context"], dependencies=[Depends(require_atlas_pin)])
 def search(
     request: SearchRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -231,7 +320,7 @@ def search(
         raise HTTPException(status_code=404 if str(exc) == "project was not found" else 400, detail=str(exc)) from exc
 
 
-@router.post("/conflicts/{conflict_event_id}/override", tags=["conflicts"])
+@router.post("/conflicts/{conflict_event_id}/override", tags=["conflicts"], dependencies=[Depends(require_atlas_pin)])
 def override_conflict(
     conflict_event_id: str,
     request: OverrideConflictRequest,

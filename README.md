@@ -43,6 +43,8 @@ Atlas solves this by storing decisions as structured project memory. A new Codex
 - Structured UI/design context capture and direct injection for UI-related tasks.
 - One-page dashboard for decisions, conflicts, design context, storage state, and estimated context avoided.
 - Doctor command for setup/debug checks before changing storage.
+- Attach command for using one Atlas install across many Codex projects.
+- Optional dashboard/API PIN for local-network-ready deployments.
 
 ## Architecture
 
@@ -164,7 +166,7 @@ After setup, daily use is simple:
 4. Confirm `/mcp` lists `atlas`.
 5. Use Atlas tools as part of the Codex workflow.
 
-The local API and MCP process stop when the task ends. Memory remains in SQLite, the Docker PostgreSQL volume, or the configured cloud database.
+The MCP process is owned by the Codex task. The local API may remain alive on the configured port until it is stopped, the task exits cleanly, or the machine shuts down. Use `atlas stop` when you want to free the port or force a clean API restart. Memory remains in SQLite, the Docker PostgreSQL volume, or the configured cloud database.
 
 ## MCP Tool Contract
 
@@ -183,6 +185,10 @@ Performs explicit mid-task recall against project-scoped decisions.
 `remove_memory(...)`
 
 Removes one decision, a list of decisions, a UTC date range, or all project memory. Whole-project deletion requires the exact confirmation phrase `DELETE ALL PROJECT MEMORY`.
+
+`edit_memory(decision_id, decision?, reason?, affected_files?)`
+
+Edits one known saved memory. Use `search(...)` first when you need its decision ID. Atlas recomputes the memory embedding and rebuilds that project's running summary after every edit.
 
 `override_conflict(conflict_event_id, reason)`
 
@@ -219,6 +225,7 @@ The dashboard shows:
 
 - project selection;
 - newest-first decision timeline;
+- an edit-and-save form for each decision (including reason and affected files);
 - conflict events and override reasons;
 - stored design-context records;
 - active storage and intelligence mode;
@@ -234,18 +241,56 @@ The default project is created from the configured project name. If multiple wor
 
 Global memory and linked-project memory are intentionally deferred to v2.
 
-## Using Atlas in Another Project
+## Global Install and Project Attach
 
-Atlas v1 is project-scoped. Each project needs its own `.env` and `.codex/config.toml` because Codex discovers MCP servers from project-local configuration.
+The preferred local workflow is one Atlas install shared by many Codex projects. Atlas keeps one database and separates project memory by `project_id`.
 
-Simple path:
+Install Atlas into a stable folder:
 
-1. Copy or clone Atlas beside the target project, or keep one dedicated Atlas folder for that project.
-2. Run setup from that folder.
-3. Set a unique `ATLAS_PROJECT_NAME` if sharing one database.
-4. Open Codex from the configured folder.
+```powershell
+.\install-atlas.ps1 -InstallDir "$env:USERPROFILE\Atlas"
+cd "$env:USERPROFILE\Atlas"
+.\atlas setup
+```
 
-A global installer or always-on Atlas service is a good v2 direction, but it is deliberately outside the Build Week v1 scope.
+The installer copies program files, creates `.venv`, and can add the Atlas folder to your user PATH. Setup still chooses storage and writes the install-level `.env`.
+
+Attach any Codex project:
+
+```powershell
+atlas attach C:\path\to\my-project --project-name my-project
+```
+
+If Atlas is not on PATH, use the full command:
+
+```powershell
+C:\Users\Admin\Atlas\atlas attach C:\path\to\my-project --project-name my-project
+```
+
+`atlas attach` writes that project's `.codex/config.toml` with the shared Atlas MCP command and `[mcp_servers.atlas.env] ATLAS_PROJECT_NAME`. The MCP sends that project name to the API, so one running Atlas API can serve multiple projects without logging them all under the install folder name.
+
+The older copy-or-clone-per-project workflow still works, but it is no longer the easiest path.
+
+## Runtime Commands
+
+```powershell
+atlas setup
+atlas attach C:\path\to\project --project-name project-name
+atlas doctor
+atlas stop
+```
+
+`atlas stop` stops the local Atlas API listening on the configured `ATLAS_API_URL` port after confirming the health endpoint identifies as `atlas-api`. It is useful when you want to free port `8000` or force a fresh API start. Atlas does not currently auto-shut down after idle time; that is a possible later feature.
+
+## Dashboard PIN
+
+For localhost-only use, no PIN is required. Before exposing the dashboard on your local network, set:
+
+```env
+ATLAS_DASHBOARD_PIN=123456
+```
+
+When a PIN is configured, non-health API routes require the `X-Atlas-Dashboard-Pin` header and the dashboard prompts for the PIN before loading memory.
 
 ## Supported Platforms
 
@@ -290,7 +335,7 @@ Codex accelerated the work in several places:
 
 - Project planning: turning the initial product idea into a scoped v1 brief, phase plan, and demo spine.
 - Backend implementation: building the FastAPI service, SQLAlchemy models, migrations, storage selection, and API routes.
-- MCP integration: exposing Atlas as Codex tools through `log_decision`, `get_context`, `search`, `remove_memory`, and `override_conflict`.
+- MCP integration: exposing Atlas as Codex tools through `log_decision`, `get_context`, `search`, `edit_memory`, `remove_memory`, and `override_conflict`.
 - Retrieval and memory behavior: implementing project-scoped recall, fresh-session behavior, structured design-context capture, and conflict detection.
 - Dashboard work: creating a dependency-free dashboard for decisions, conflicts, design context, storage state, and estimated context avoided.
 - Reliability: adding setup recovery, doctor checks, Docker detection, cloud PostgreSQL support, SQLite fallback, and MCP startup fixes.
@@ -298,7 +343,7 @@ Codex accelerated the work in several places:
 
 Key human product decisions:
 
-- Keep Atlas project-scoped for v1 instead of building a risky global service.
+- Keep Atlas project-scoped by `project_id`, with one local install able to attach many Codex projects.
 - Store decisions and reasons, not full transcripts.
 - Treat conflicts as warnings with auditable overrides, not silent hard blocks.
 - Support SQLite for frictionless testing and PostgreSQL + pgvector for production-like retrieval.

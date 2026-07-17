@@ -2,9 +2,20 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const esc = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const formatDate = (value) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+let decisionById = new Map();
 
 async function api(path, options = {}) {
-  const response = await fetch(`/api/v1${path}`, options);
+  const headers = new Headers(options.headers || {});
+  const storedPin = sessionStorage.getItem("atlasDashboardPin");
+  if (storedPin) headers.set("X-Atlas-Dashboard-Pin", storedPin);
+  const response = await fetch(`/api/v1${path}`, { ...options, headers });
+  if (response.status === 401) {
+    const pin = prompt("Enter the Atlas dashboard PIN.");
+    if (pin) {
+      sessionStorage.setItem("atlasDashboardPin", pin);
+      return api(path, options);
+    }
+  }
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "Atlas could not load dashboard data.");
   return response.json();
 }
@@ -15,6 +26,7 @@ function selectTab(name) {
 }
 
 function renderDecisions(items) {
+  decisionById = new Map(items.map((item) => [item.id, item]));
   $("#decision-count").textContent = `${items.length} shown`;
   $("#decisions").innerHTML = items.length ? items.map((item) => `
     <article class="decision">
@@ -24,7 +36,10 @@ function renderDecisions(items) {
         <span class="tag">${formatDate(item.created_at)}</span>
         ${item.affected_files.map((file) => `<span class="tag">${esc(file)}</span>`).join("")}
       </div>
-      <button class="remove-memory" type="button" data-decision-id="${esc(item.id)}">Remove memory</button>
+      <div class="memory-actions">
+        <button class="edit-memory" type="button" data-decision-id="${esc(item.id)}">Edit memory</button>
+        <button class="remove-memory" type="button" data-decision-id="${esc(item.id)}">Remove memory</button>
+      </div>
     </article>`).join("")
     : `<div class="empty compact"><strong>No decisions in this range.</strong><span>Adjust the dates or log the first material decision.</span></div>`;
 }
@@ -155,6 +170,17 @@ $("#remove-project").addEventListener("click", async () => {
 });
 
 $("#decisions").addEventListener("click", async (event) => {
+  const editButton = event.target.closest(".edit-memory");
+  if (editButton) {
+    const memory = decisionById.get(editButton.dataset.decisionId);
+    if (!memory) return;
+    $("#edit-decision-id").value = memory.id;
+    $("#edit-decision").value = memory.decision;
+    $("#edit-reason").value = memory.reason;
+    $("#edit-files").value = memory.affected_files.join("\n");
+    $("#edit-memory-dialog").showModal();
+    return;
+  }
   const button = event.target.closest(".remove-memory");
   if (!button) return;
   if (!confirm("Remove this saved memory and its related UI context/conflict evidence? This cannot be undone.")) return;
@@ -170,6 +196,38 @@ $("#decisions").addEventListener("click", async (event) => {
     $("#error").textContent = error.message;
     $("#error").hidden = false;
     button.disabled = false;
+  }
+});
+
+function closeEditDialog() {
+  $("#edit-memory-dialog").close();
+}
+
+$("#cancel-edit").addEventListener("click", closeEditDialog);
+$("#cancel-edit-secondary").addEventListener("click", closeEditDialog);
+$("#edit-memory-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const saveButton = $("#save-edit");
+  saveButton.disabled = true;
+  try {
+    const affectedFiles = $("#edit-files").value.split("\n").map((path) => path.trim()).filter(Boolean);
+    await api(`/decisions/${$("#edit-decision-id").value}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: $("#project-select").value,
+        decision: $("#edit-decision").value.trim(),
+        reason: $("#edit-reason").value.trim(),
+        affected_files: affectedFiles,
+      }),
+    });
+    closeEditDialog();
+    await refresh();
+  } catch (error) {
+    $("#error").textContent = error.message;
+    $("#error").hidden = false;
+  } finally {
+    saveButton.disabled = false;
   }
 });
 
