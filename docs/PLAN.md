@@ -16,9 +16,9 @@
 
 - **GPT-5.6 Terra, Medium:** default for routine implementation, tests, docs, and small fixes.
 - **GPT-5.6 Terra, High:** integrations, debugging that crosses components, migrations, and careful code review.
-- **GPT-5.5, High:** architecture decisions, extraction/retrieval/conflict contracts, and a focused second opinion on a hard bug.
+- **Highest available Codex model, High:** architecture decisions, extraction/retrieval/conflict contracts, and a focused second opinion on a hard bug.
 - Do not use Max/Ultra by default. Escalate only after a focused High-reasoning attempt fails.
-- The current Codex app does not expose a model named “GPT-5.6 Sol”; use GPT-5.5 High for that high-capability role.
+- Do not cite unavailable model tier names in the public submission. Cite the GPT-5.6/Codex sessions that materially contributed to the build.
 
 ## Phase 0 — Project setup and foundation (Jul 15)
 

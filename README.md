@@ -2,9 +2,9 @@
 
 > **Atlas prevents AI coding agents from silently reversing your project's engineering decisions across sessions.**
 
-Atlas is an MCP-powered, project-scoped engineering memory layer for Codex. It preserves durable decisions and their reasons, retrieves only the context relevant to a new task, and warns when a request contradicts an earlier architectural choice.
+Atlas is a project memory tool for Codex. It saves important engineering decisions, keeps the reasons attached to them, and brings the relevant ones back when a new task starts. If a request goes against an earlier choice, Atlas warns before work begins.
 
-Built for OpenAI Build Week in the Developer Tools track, Atlas is deliberately not a generic chat-memory system or a background transcript recorder. It gives Codex an explicit, auditable workflow for carrying engineering intent forward without replaying whole conversations.
+I built it for OpenAI Build Week in the Developer Tools track. It is not a generic chat-memory system or a background transcript recorder. The point is narrower: help Codex remember the engineering intent of a project without replaying whole conversations.
 
 ## In One Minute
 
@@ -17,7 +17,7 @@ Atlas makes the durable context available again:
 3. If the new request conflicts with prior engineering intent, Atlas returns the original decision and reason before implementation starts.
 4. The dashboard provides a searchable, project-scoped audit trail of decisions and conflict overrides.
 
-The result: a project remains consistent even when the coding agent begins with a fresh conversation.
+The result: fresh Codex tasks can stay aligned with the project instead of starting from zero.
 
 For a concise recording flow, see the [Build Week demo script](docs/DEMO_SCRIPT.md).
 
@@ -370,6 +370,30 @@ Key human product decisions:
 GPT-5.6 and Codex contributed most directly to implementation speed, architecture iteration, bug diagnosis, test creation, and documentation. The final submission positioning is intentionally honest: Atlas is an MCP-enforced architectural memory and conflict-warning layer for Codex, not a universal background memory service.
 
 The required Codex `/feedback` session ID is submitted in the Devpost form rather than committed into the public repository.
+
+## Why Not Just a Markdown File?
+
+Atlas is meant to work alongside `AGENTS.md`, `CLAUDE.md`, and project notes, not replace them. Markdown files are still the right place for stable rules, setup instructions, coding conventions, and durable architecture notes.
+
+The problem Atlas focuses on is the part that is easy to forget: decisions made during active development, the reason they were made, and later requests that contradict them. A markdown file only helps if a developer remembers to update it and if the next task reads the right section. Atlas stores material decisions as structured project memory, retrieves only the decisions relevant to the current request, and can warn when a new request conflicts with a prior choice.
+
+In short: markdown is passive documentation; Atlas is an active decision layer for Codex.
+
+## Windows PATH Troubleshooting
+
+If `atlas` is not recognized after installing, open a new PowerShell or Command Prompt first. Windows does not refresh PATH inside terminals that were already open before the installer updated the user environment.
+
+If a new terminal still cannot find it, run the command by full path:
+
+```powershell
+C:\Users\Admin\Atlas\atlas.cmd attach . --project-name atlas-judge-demo
+```
+
+For a custom install folder, replace `C:\Users\Admin\Atlas` with the folder chosen in the installer. After PATH refreshes, the shorter command works:
+
+```powershell
+atlas attach . --project-name atlas-judge-demo
+```
 
 ## Build Week Notes
 

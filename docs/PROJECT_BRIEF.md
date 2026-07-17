@@ -118,16 +118,16 @@ Use the lowest model/reasoning setting that can safely complete the work, then e
 |---|---|---|
 | Creating files, simple FastAPI routes, migrations, routine CRUD, tests, documentation, small bug fixes | GPT-5.6 Terra | Low or Medium |
 | Implementing an established plan phase with a few connected files | GPT-5.6 Terra | Medium |
-| Designing the initial data model, MCP tool contracts, retrieval boundaries, embedding/query correctness, integration debugging | GPT-5.6 Sol | High |
-| Resolving an architecture trade-off, a subtle cross-project/privacy issue, broken end-to-end demo flow, or final code review | GPT-5.6 Sol | High; use Max only if High fails after a focused attempt |
+| Designing the initial data model, MCP tool contracts, retrieval boundaries, embedding/query correctness, integration debugging | GPT-5.6 Terra or the highest available Codex model | High |
+| Resolving an architecture trade-off, a subtle cross-project/privacy issue, broken end-to-end demo flow, or final code review | Highest available Codex model | High; use Max only if High fails after a focused attempt |
 | Simple status checks, checkbox/log updates, narrow copy edits | GPT-5.6 Terra | Low |
 
-Default for Atlas: **Terra at Medium**. Switch to **Sol at High** before irreversible or cross-cutting decisions, and switch back to Terra when the architecture is settled. Do not start at Max: it costs more time and budget and is unlikely to improve routine implementation. Raise reasoning one level only when the current attempt is missing dependencies, producing inconsistent changes, or failing to diagnose a non-obvious issue; record any major approach change in `PROGRESS.md`.
+Default for Atlas: **GPT-5.6 Terra at Medium**. Switch to a higher reasoning setting before irreversible or cross-cutting decisions, and switch back to the default when the architecture is settled. Do not start at Max: it costs more time and budget and is unlikely to improve routine implementation. Raise reasoning one level only when the current attempt is missing dependencies, producing inconsistent changes, or failing to diagnose a non-obvious issue; record any major approach change in `PROGRESS.md`.
 
-Sol is the flagship/highest-capability GPT-5.6 tier, while Terra is the lower-cost tier intended to balance capability, speed, and cost. Current availability and controls depend on the Codex plan and workspace. See OpenAI’s [GPT-5.6 overview](https://openai.com/index/gpt-5-6/) and [model availability guide](https://help.openai.com/en/articles/20001354-gpt-56-in-chatgpt).
+Current model availability and controls depend on the Codex plan and workspace. The submission should truthfully cite the GPT-5.6/Codex sessions that materially contributed to Atlas.
 
 ## Suggested starting prompt for a new Codex session
 
 ```text
-Read /docs/PROJECT_BRIEF.md, /docs/PLAN.md, and /docs/PROGRESS.md first. Then continue Atlas from the next unchecked task. Follow the v1 scope and guardrails exactly. Before coding, state which plan checkbox you are addressing. After meaningful work, update PLAN.md and append a concise dated entry to PROGRESS.md. Use Terra at Medium by default; tell me to switch to Sol at High before any cross-cutting architecture, retrieval correctness, privacy/isolation, or difficult debugging decision.
+Read /docs/PROJECT_BRIEF.md, /docs/PLAN.md, and /docs/PROGRESS.md first. Then continue Atlas from the next unchecked task. Follow the v1 scope and guardrails exactly. Before coding, state which plan checkbox you are addressing. After meaningful work, update PLAN.md and append a concise dated entry to PROGRESS.md. Use GPT-5.6 Terra at Medium by default; tell me before any cross-cutting architecture, retrieval correctness, privacy/isolation, or difficult debugging decision needs a higher reasoning setting.
 ```

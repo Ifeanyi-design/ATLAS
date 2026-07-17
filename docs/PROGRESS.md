@@ -32,7 +32,7 @@ Keep entries short. Update `PLAN.md` checkboxes as work is completed.
 - Seed data was created and the FastAPI service is running locally at `http://127.0.0.1:8000`.
 - The stdio MCP server must be launched by Codex, not kept open in a separate terminal.
 - The Codex desktop app has no `codex` CLI command on this machine. Create project-local `.codex/config.toml` with the Atlas server command, then start a new Codex session to enumerate its tools.
-- Model guide recorded in `PLAN.md`: GPT-5.5 High for Phase 1 contract design; GPT-5.6 Terra Medium/High for implementation and debugging. “GPT-5.6 Sol” is not available in this Codex app.
+- Model guide recorded in `PLAN.md`: GPT-5.6 Terra for routine Build Week implementation, with higher reasoning only for difficult architecture, retrieval, or debugging work.
 - Next: verify `log_decision`, `get_context`, and `search` appear in a new session, then begin Phase 1.
 
 ## 2026-07-15 - Phase 1 extraction schema started
@@ -179,8 +179,8 @@ Keep entries short. Update `PLAN.md` checkboxes as work is completed.
 
 - Rewrote `docs/DEMO_SCRIPT.md` as a real screen-and-voice recording plan under three minutes, including fresh-task recall, conflict warning, decision capture, dashboard evidence, and one saved-memory edit.
 - Added `docs/BUILD_WEEK_SUBMISSION_CHECKLIST.md` with the remaining Devpost material, developer-tool judge path, and final proof steps.
-- Current verification baseline is 37 passing backend tests. The remaining delivery work is a live recorded end-to-end run, public YouTube upload, Devpost fields, and a compiled Windows installer if Inno Setup is installed.
-- Refreshed `README.md` with the current SQLite judge quick start, automatic API-start explanation, dashboard path, and `edit_memory` tool. Added `docs/DEVPOST_SUBMISSION.md` as a ready-to-paste submission description and links checklist.
+- Current verification baseline is 37 passing backend tests. The remaining delivery work is a live recorded end-to-end run, public YouTube upload, Devpost fields, `/feedback` session ID capture, and publishing the compiled Windows installer as a release asset.
+- Refreshed `README.md` with the current SQLite judge quick start, automatic API-start explanation, dashboard path, and `edit_memory` tool. Added `docs/DEVPOST_SUBMISSION.md` as a submission outline and links checklist.
 - Compiled the Inno Setup installer at `packaging/windows/Output/AtlasSetup.exe`. The README now makes the EXE the preferred Windows judge path; publish it as a GitHub Release asset before submission.
 - Clarified trusted-team cloud sharing: each teammate uses the same cloud PostgreSQL URL and project name but runs `atlas attach` locally, so no absolute-path Codex config is copied between computers. Documented Docker ownership, the `atlas-db` container, automatic versus manual startup, and the local `5434 -> 5432` port mapping. Fixed manual Docker setup to apply the schema after the user starts the supplied container.
 
