@@ -175,6 +175,12 @@ Keep entries short. Update `PLAN.md` checkboxes as work is completed.
 - Updated the Inno Setup path so it passes the chosen `{app}` install directory to PATH setup, avoids a hidden PowerShell prompt, and excludes previous installer output from the package source. A later `atlas attach` always writes the actual install location into that project's Codex config.
 - Verified focused storage and MCP tests: 8 passed.
 
+## 2026-07-17 - Submission materials audit
+
+- Rewrote `docs/DEMO_SCRIPT.md` as a real screen-and-voice recording plan under three minutes, including fresh-task recall, conflict warning, decision capture, dashboard evidence, and one saved-memory edit.
+- Added `docs/BUILD_WEEK_SUBMISSION_CHECKLIST.md` with the remaining Devpost material, developer-tool judge path, and final proof steps.
+- Current verification baseline is 37 passing backend tests. The remaining delivery work is a live recorded end-to-end run, public YouTube upload, Devpost fields, and a compiled Windows installer if Inno Setup is installed.
+
 ## Deferred to v2
 
 - Knowledge graphs, confidence scoring, time travel, full CLI, background watching, multi-model sharing, linked-project memory, and recency/importance weighting.
