@@ -18,6 +18,7 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+SetupIconFile=assets\atlas.ico
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".git\*,.venv\*,.codex\*,.agents\*,.pytest_cache\*,.docker-tmp\*,work\*,outputs\*,.env,packaging\windows\Output\*"
