@@ -1,8 +1,25 @@
 # Atlas
 
-Atlas is an MCP-powered engineering memory layer for Codex. It records durable project decisions, retrieves only relevant context for new tasks, and warns when a new request contradicts an earlier architectural choice.
+> **Atlas prevents AI coding agents from silently reversing your project's engineering decisions across sessions.**
 
-Built for OpenAI Build Week in the Developer Tools track, Atlas is not a generic chat memory system. It is a project-scoped guardrail for long-running Codex work: remember decisions, preserve the reason behind them, and keep future agent sessions aligned without replaying whole conversations.
+Atlas is an MCP-powered, project-scoped engineering memory layer for Codex. It preserves durable decisions and their reasons, retrieves only the context relevant to a new task, and warns when a request contradicts an earlier architectural choice.
+
+Built for OpenAI Build Week in the Developer Tools track, Atlas is deliberately not a generic chat-memory system or a background transcript recorder. It gives Codex an explicit, auditable workflow for carrying engineering intent forward without replaying whole conversations.
+
+## In One Minute
+
+AI coding agents can start a fresh task without the reasoning behind a project's earlier choices. That makes it easy to repeat debates or accidentally reverse architecture.
+
+Atlas makes the durable context available again:
+
+1. A Codex task records a material decision, its rationale, affected files, and optional UI/design context.
+2. A later task retrieves only the relevant decisions and running project summary.
+3. If the new request conflicts with prior engineering intent, Atlas returns the original decision and reason before implementation starts.
+4. The dashboard provides a searchable, project-scoped audit trail of decisions and conflict overrides.
+
+The result: a project remains consistent even when the coding agent begins with a fresh conversation.
+
+For a concise recording flow, see the [Build Week demo script](docs/DEMO_SCRIPT.md).
 
 ## Why Atlas Exists
 
