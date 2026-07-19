@@ -13,3 +13,6 @@ postgres_data/
 work/*.db
 work/*.log
 work/.requirements.sha256
+work/atlas-pytest*/
+work/pytest-cache/
+work/pytest-temp/

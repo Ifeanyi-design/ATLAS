@@ -8,11 +8,12 @@ powershell -ExecutionPolicy Bypass -File .\install-atlas.ps1 -InstallDir "$env:U
 
 That script is the source of truth for the install workflow:
 
-1. Copy Atlas program files into the install folder.
+1. Copy only known Atlas program files into the install folder.
 2. Skip local state such as `.env`, `.venv`, `.codex`, `.git`, and `work`.
 3. Create `.venv`.
-4. Optionally add the install folder to the user PATH.
-5. Leave storage selection to `atlas setup`.
+4. Create `work` and grant the Codex sandbox user group Modify permission there when available.
+5. Optionally add the install folder to the user PATH.
+6. Leave storage selection to `atlas setup`.
 
 ## EXE Installer Path
 
@@ -23,6 +24,8 @@ Use Inno Setup first. It is the simplest way to wrap the PowerShell workflow int
 3. Open `packaging/windows/atlas.iss` in Inno Setup Compiler.
 4. Set `SourceDir` to the Atlas repository folder if needed.
 5. Compile.
+
+The Inno script intentionally lists the packaged folders and files instead of copying the entire repository tree. On reinstall it refreshes program folders such as `backend`, `dashboard`, `docs`, `infra`, `mcp_server`, and `packaging`, while preserving `.env`, `.venv`, and `work`. This prevents stale nested folders from a previous bad install, such as `backend\backend`, from surviving into the next build.
 
 The compiled release artifact is:
 
@@ -38,7 +41,7 @@ The installer defaults to:
 {localappdata}\Atlas
 ```
 
-but the person can choose any folder. For the current local workflow, `C:\Users\Admin\Atlas` is also fine.
+but the person can choose any folder. The destination page is forced on so a reinstall does not silently reuse a previous Atlas location without showing it. For the current local workflow, `C:\Users\Admin\Atlas` is also fine.
 
 The installer uses the selected folder for the optional user PATH entry. When `atlas attach` runs, it writes that same folder into the project's `.codex/config.toml`. If Atlas is later moved or reinstalled elsewhere, rerun `atlas attach . --project-name <name>` once in each attached project.
 

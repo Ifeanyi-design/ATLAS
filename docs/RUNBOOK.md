@@ -2,6 +2,8 @@
 
 This is the non-mystical version of how Atlas runs.
 
+For a deeper internal walkthrough and a hands-on testing script, read [`PRODUCT_EXPLAINER.md`](PRODUCT_EXPLAINER.md).
+
 ## The story
 
 Imagine you are a developer opening your laptop in the morning.
@@ -16,7 +18,7 @@ You normally do **not** start the MCP server yourself. Codex starts it from `.co
 
 What you may need to start yourself is the database dependency:
 
-- SQLite: nothing to start.
+- SQLite: nothing to start. The database file lives in the Atlas install folder under `work\atlas.db`.
 - Cloud PostgreSQL: nothing local to start, but internet/database access must work.
 - Docker PostgreSQL: Docker Desktop must be running.
 
@@ -34,6 +36,8 @@ From the Atlas install folder in PowerShell, use:
 `setup` is only for first-time setup or changing storage. It asks you to choose SQLite, local Docker PostgreSQL, or an existing cloud PostgreSQL database. When you choose cloud PostgreSQL, it asks for the database URL and saves it in this project's `.env` file.
 
 `attach` writes a project-local `.codex/config.toml` so Codex can start the shared Atlas MCP server for that project. It also writes `ATLAS_PROJECT_NAME` into the MCP env block, so a shared API keeps project memory separated by name and ID.
+
+`attach` also creates or updates the active Codex instruction file for that folder. If `AGENTS.override.md` exists, Atlas appends its marked instruction block there because Codex gives that file priority. Otherwise Atlas uses `AGENTS.md`. Existing user guidance is preserved, and rerunning attach replaces only the Atlas-managed block. Use `--no-agents` when you want to manage Codex instructions yourself.
 
 `doctor` only checks the setup. It does not change your memory or database.
 
@@ -220,7 +224,9 @@ If Atlas is not on PATH, use the full path:
 C:\Users\Admin\Atlas\atlas attach C:\path\to\project --project-name project-name
 ```
 
-The important part is `.codex/config.toml`: Codex needs that file in the project it opens so it knows how to start the Atlas MCP server. The attached config points to the shared Atlas install and passes the project name through `[mcp_servers.atlas.env]`.
+The important parts are `.codex/config.toml` and the Codex instruction file. Codex needs the config file in the project it opens so it knows how to start the Atlas MCP server. The attached config points to the shared Atlas install and passes the project name through `[mcp_servers.atlas.env]`. The instruction file tells Codex when to call Atlas tools during normal work.
+
+All attached projects can share one install-level database. Atlas keeps the data separated by the project row resolved from `ATLAS_PROJECT_NAME`, then filters every decision, search, conflict, edit, and deletion by `project_id`.
 
 ## Why not build a background service now?
 

@@ -59,6 +59,95 @@ function Add-AtlasToUserPath {
   Write-Host "Added Atlas to the user PATH. New terminals can run 'atlas' from any folder."
 }
 
+function Grant-AtlasWorkPermission {
+  param([string]$Target)
+  $workPath = Join-Path $Target "work"
+  New-Item -ItemType Directory -Path $workPath -Force | Out-Null
+  $group = "CodexSandboxUsers"
+  try {
+    $null = New-Object System.Security.Principal.NTAccount($group).Translate([System.Security.Principal.SecurityIdentifier])
+  } catch {
+    Write-Warning "CodexSandboxUsers was not found. If Atlas tools cannot write logs or SQLite data, grant Modify permission on $workPath to the Codex sandbox user group."
+    return
+  }
+  & icacls $workPath /grant "${group}:(OI)(CI)M" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Could not grant CodexSandboxUsers Modify permission on $workPath. If Atlas tools fail to write, run: icacls `"$workPath`" /grant `"CodexSandboxUsers:(OI)(CI)M`""
+    return
+  }
+  Write-Host "Granted Codex sandbox write access to $workPath"
+}
+
+function Copy-AtlasPath {
+  param(
+    [string]$SourceRoot,
+    [string]$TargetRoot,
+    [string]$RelativePath
+  )
+  $sourcePath = Join-Path $SourceRoot $RelativePath
+  if (-not (Test-Path $sourcePath)) {
+    return
+  }
+  $destinationPath = Join-Path $TargetRoot $RelativePath
+  $destinationParent = Split-Path -Parent $destinationPath
+  New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+  Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Recurse -Force
+}
+
+function Copy-AtlasFiles {
+  param(
+    [string]$SourceRoot,
+    [string]$TargetRoot,
+    [string]$Pattern,
+    [string]$DestinationRelativePath
+  )
+  $destination = Join-Path $TargetRoot $DestinationRelativePath
+  New-Item -ItemType Directory -Path $destination -Force | Out-Null
+  Get-ChildItem -Path (Join-Path $SourceRoot $Pattern) -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $destination $_.Name) -Force
+  }
+}
+
+function Copy-AtlasProgramFiles {
+  param(
+    [string]$SourceRoot,
+    [string]$TargetRoot
+  )
+  $programRoots = @("backend", "dashboard", "docs", "infra", "mcp_server", "packaging")
+  foreach ($root in $programRoots) {
+    $destination = Join-Path $TargetRoot $root
+    if (Test-Path $destination) {
+      Remove-Item -LiteralPath $destination -Recurse -Force
+    }
+  }
+
+  $rootFiles = @("atlas.cmd", "docker-compose.yml", "install-atlas.ps1", "LICENSE", "pytest.ini", "README.md", "requirements.txt", ".env.example")
+  foreach ($file in $rootFiles) {
+    Copy-AtlasPath -SourceRoot $SourceRoot -TargetRoot $TargetRoot -RelativePath $file
+  }
+
+  $directories = @(
+    "backend\app",
+    "backend\migrations",
+    "backend\scripts",
+    "backend\tests",
+    "infra\postgres\init"
+  )
+  foreach ($directory in $directories) {
+    Copy-AtlasPath -SourceRoot $SourceRoot -TargetRoot $TargetRoot -RelativePath $directory
+  }
+
+  Copy-AtlasPath -SourceRoot $SourceRoot -TargetRoot $TargetRoot -RelativePath "backend\alembic.ini"
+  Copy-AtlasFiles -SourceRoot $SourceRoot -TargetRoot $TargetRoot -Pattern "dashboard\*.html" -DestinationRelativePath "dashboard"
+  Copy-AtlasFiles -SourceRoot $SourceRoot -TargetRoot $TargetRoot -Pattern "dashboard\*.css" -DestinationRelativePath "dashboard"
+  Copy-AtlasFiles -SourceRoot $SourceRoot -TargetRoot $TargetRoot -Pattern "dashboard\*.js" -DestinationRelativePath "dashboard"
+  Copy-AtlasFiles -SourceRoot $SourceRoot -TargetRoot $TargetRoot -Pattern "docs\*.md" -DestinationRelativePath "docs"
+  Copy-AtlasFiles -SourceRoot $SourceRoot -TargetRoot $TargetRoot -Pattern "mcp_server\*.py" -DestinationRelativePath "mcp_server"
+  Copy-AtlasPath -SourceRoot $SourceRoot -TargetRoot $TargetRoot -RelativePath "packaging\windows\README.md"
+  Copy-AtlasPath -SourceRoot $SourceRoot -TargetRoot $TargetRoot -RelativePath "packaging\windows\atlas.iss"
+  Copy-AtlasPath -SourceRoot $SourceRoot -TargetRoot $TargetRoot -RelativePath "packaging\windows\assets"
+}
+
 $source = Split-Path -Parent $PSCommandPath
 $target = [System.IO.Path]::GetFullPath($InstallDir)
 $sourceFull = [System.IO.Path]::GetFullPath($source)
@@ -74,11 +163,7 @@ if ($sourceFull.TrimEnd("\") -ieq $target.TrimEnd("\")) {
   }
 
   New-Item -ItemType Directory -Path $target -Force | Out-Null
-  $exclude = @(".git", ".venv", ".codex", ".agents", ".pytest_cache", ".docker-tmp", "work", "outputs", ".env")
-  Get-ChildItem -LiteralPath $source -Force | Where-Object { $exclude -notcontains $_.Name } | ForEach-Object {
-    $destination = Join-Path $target $_.Name
-    Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
-  }
+  Copy-AtlasProgramFiles -SourceRoot $source -TargetRoot $target
   Write-Host "Copied Atlas program files to $target"
 }
 
@@ -89,6 +174,8 @@ if (-not (Test-Path $venvPython)) {
 } else {
   Write-Host "Atlas virtual environment already exists."
 }
+
+Grant-AtlasWorkPermission -Target $target
 
 if ($AddToPath) {
   Add-AtlasToUserPath -Target $target

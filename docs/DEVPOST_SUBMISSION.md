@@ -39,6 +39,10 @@ I used Codex with GPT-5.6 during the Build Week implementation: planning the arc
 
 The preferred Windows judge path is the `AtlasSetup.exe` installer published with the project release. It installs Atlas, creates its Python environment, guides the judge through SQLite setup, and lets them attach any small project with `atlas attach`. The README also includes a source fallback. No Docker, cloud database, or frontend build is required.
 
+## Supported test environment
+
+The packaged Build Week path is tested for Windows 10/11 x64 with PowerShell and Codex Desktop. Python 3.11 or newer must be installed so the installer can create Atlas's `.venv`. Docker Desktop is optional and only needed for local Docker PostgreSQL; SQLite requires no Docker, cloud database, frontend build, or OpenAI API key.
+
 ## Links to enter in Devpost
 
 - Demo video: [PASTE PUBLIC YOUTUBE URL]

@@ -7,10 +7,14 @@ Run from the project root with:
 
 from __future__ import annotations
 
+import json
 import importlib.util
+import queue
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -84,6 +88,63 @@ def check_codex_config() -> None:
     pass_(".codex/config.toml registers the Atlas MCP server.")
 
 
+def check_mcp_handshake() -> None:
+    message = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "atlas-doctor", "version": "0"},
+        },
+    }
+    started = time.monotonic()
+    process: subprocess.Popen[str] | None = None
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "mcp_server.server"],
+            cwd=PROJECT_ROOT,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        assert process.stdin is not None
+        assert process.stdout is not None
+        output: queue.Queue[str] = queue.Queue()
+        threading.Thread(target=lambda: output.put(process.stdout.readline()), daemon=True).start()
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+        try:
+            line = output.get(timeout=30)
+        except queue.Empty:
+            stderr = process.stderr.read(500) if process.stderr is not None and process.poll() is not None else ""
+            fail(f"Atlas MCP server did not answer initialize within 30s. {stderr}".rstrip())
+            return
+        if not line:
+            stderr = process.stderr.read(500) if process.stderr is not None else ""
+            fail(f"Atlas MCP server exited before answering initialize. {stderr}".rstrip())
+            return
+        payload = json.loads(line)
+        server_name = payload.get("result", {}).get("serverInfo", {}).get("name")
+        if payload.get("id") == 1 and server_name == "Atlas":
+            elapsed = time.monotonic() - started
+            pass_(f"Atlas MCP stdio handshake succeeded in {elapsed:.1f}s.")
+        else:
+            fail(f"Atlas MCP initialize returned an unexpected response: {payload}")
+    except Exception as exc:
+        fail(f"Atlas MCP stdio handshake failed: {exc}")
+    finally:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
 def check_settings() -> tuple[str | None, str | None, bool]:
     try:
         from app.core.config import get_settings
@@ -140,6 +201,17 @@ def check_database() -> None:
         fail(f"Database connection failed: {exc}")
         return
 
+    if engine.dialect.name == "sqlite":
+        from app.db import initialize_database
+
+        try:
+            initialize_database()
+        except Exception as exc:
+            fail(f"SQLite schema initialization failed: {exc}")
+            return
+        pass_("SQLite schema is initialized by the Atlas API startup path.")
+        return
+
     try:
         result = subprocess.run(
             [sys.executable, "-m", "alembic", "current"],
@@ -181,6 +253,7 @@ def main() -> int:
     check_python()
     check_dependencies()
     check_codex_config()
+    check_mcp_handshake()
     storage_mode, api_url, auto_start_docker = check_settings()
     check_docker(storage_mode, auto_start_docker)
     check_database()

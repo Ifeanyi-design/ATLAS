@@ -20,6 +20,7 @@ Atlas makes the durable context available again:
 The result: fresh Codex tasks can stay aligned with the project instead of starting from zero.
 
 For a concise recording flow, see the [Build Week demo script](docs/DEMO_SCRIPT.md).
+For product internals, storage behavior, retrieval flow, and self-testing, see the [Atlas product explainer](docs/PRODUCT_EXPLAINER.md).
 
 ## Why Atlas Exists
 
@@ -165,7 +166,7 @@ The doctor checks:
 - selected storage settings;
 - Docker command and daemon where relevant;
 - database connectivity;
-- Alembic migration revision;
+- SQLite schema initialization or PostgreSQL Alembic migration revision;
 - local API health.
 
 It is normal for the API health check to warn when no Atlas MCP process is currently running. Atlas starts the API on demand.
@@ -181,6 +182,27 @@ After setup, daily use is simple:
 5. Use Atlas tools as part of the Codex workflow.
 
 The MCP process is owned by the Codex task. The local API may remain alive on the configured port until it is stopped, the task exits cleanly, or the machine shuts down. Use `atlas stop` when you want to free the port or force a clean API restart. Memory remains in SQLite, the Docker PostgreSQL volume, or the configured cloud database.
+
+## Making Codex Use Atlas Consistently
+
+After `atlas attach`, Codex can see the Atlas MCP tools in fresh tasks, but v1 is still an explicit MCP workflow rather than a background watcher. To make tool use consistent, `atlas attach` also creates or updates the attached project's active Codex instruction file:
+
+- If `AGENTS.override.md` already exists in the target folder, Atlas updates that file because Codex gives it priority.
+- Otherwise Atlas creates or updates `AGENTS.md`.
+- Existing user instructions are preserved. Atlas only manages the block between `ATLAS-CODEX-INSTRUCTIONS:START` and `ATLAS-CODEX-INSTRUCTIONS:END`.
+- Use `atlas attach --no-agents ...` if you only want the MCP config and prefer to manage instructions yourself.
+
+The Atlas block says:
+
+```markdown
+Before making architecture, storage, API, data-model, or UI-pattern changes, call Atlas `get_context` with the user's request.
+During work, use Atlas `search` when prior project decisions may matter.
+After a material engineering decision is made, call Atlas `log_decision` with the decision, reason, and affected files.
+If Atlas reports a conflict and the user chooses to continue, call `override_conflict` with the reason.
+Use `edit_memory` or `remove_memory` only when the user explicitly asks to correct or delete saved Atlas memory.
+```
+
+Start a fresh Codex task after changing these files. Codex reads project instructions when the session starts, so an already-open task may not see the new guidance.
 
 ## MCP Tool Contract
 
@@ -272,7 +294,7 @@ Atlas's supplied local Docker database is named `atlas-db` in Docker Desktop. It
 
 ## Global Install and Project Attach
 
-The preferred local workflow is one Atlas install shared by many Codex projects. Atlas keeps one database and separates project memory by `project_id`.
+The preferred local workflow is one Atlas install shared by many Codex projects. Atlas keeps one database in the install folder and separates project memory by `project_id`.
 
 Install Atlas into a stable folder:
 
@@ -282,7 +304,7 @@ cd "$env:USERPROFILE\Atlas"
 .\atlas setup
 ```
 
-The installer copies program files, creates `.venv`, and can add the Atlas folder to your user PATH. Setup still chooses storage and writes the install-level `.env`.
+The installer copies program files, creates `.venv`, prepares the install-level `work` folder for Codex sandbox writes, and can add the Atlas folder to your user PATH. Setup still chooses storage and writes the install-level `.env`. SQLite storage is anchored to the install folder, so attached projects do not create their own Atlas databases.
 
 Attach any Codex project:
 
@@ -323,13 +345,15 @@ When a PIN is configured, non-health API routes require the `X-Atlas-Dashboard-P
 
 ## Supported Platforms
 
-Atlas is a local developer tool. The main tested platform for the Build Week submission is Windows with PowerShell and Codex Desktop. The architecture is intentionally portable to macOS and Linux because the backend is Python/FastAPI, the storage choices are SQLite or PostgreSQL, and the MCP server is launched through a project-local command.
+Atlas is a local developer tool. The supported Build Week judge path is Windows 10/11 x64 with PowerShell and Codex Desktop. The architecture is intentionally portable to macOS and Linux because the backend is Python/FastAPI, the storage choices are SQLite or PostgreSQL, and the MCP server is launched through a project-local command, but those platforms are not the primary packaged/demo path for this submission.
 
 Platform notes:
 
-- Windows: primary tested platform.
-- macOS/Linux: expected to work with Python 3.11+, but the setup command examples may need shell-path adjustments.
-- Codex: required for the project-local MCP workflow.
+- Windows 10/11 x64: primary tested and supported Build Week platform.
+- Codex Desktop: required for the project-local MCP workflow.
+- PowerShell: used by the Windows installer and setup commands.
+- Python 3.11 or newer: required for source setup; the installer creates Atlas's `.venv` from an installed Python.
+- macOS/Linux: expected to work with Python 3.11+, but not packaged or fully tested for the Build Week judge path.
 - Docker Desktop: optional, only needed for local Docker PostgreSQL.
 - OpenAI API key: optional. Atlas runs without it in deterministic offline mode.
 

@@ -19,9 +19,55 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 SetupIconFile=assets\atlas.ico
+DisableDirPage=no
+AlwaysShowDirOnReadyPage=yes
+
+[InstallDelete]
+; Refresh program files on reinstall without touching user/runtime state.
+; Keep {app}\work, {app}\.env, and {app}\.venv intact.
+Type: filesandordirs; Name: "{app}\backend"
+Type: filesandordirs; Name: "{app}\dashboard"
+Type: filesandordirs; Name: "{app}\docs"
+Type: filesandordirs; Name: "{app}\infra"
+Type: filesandordirs; Name: "{app}\mcp_server"
+Type: filesandordirs; Name: "{app}\packaging"
+Type: files; Name: "{app}\atlas.cmd"
+Type: files; Name: "{app}\docker-compose.yml"
+Type: files; Name: "{app}\install-atlas.ps1"
+Type: files; Name: "{app}\LICENSE"
+Type: files; Name: "{app}\pytest.ini"
+Type: files; Name: "{app}\README.md"
+Type: files; Name: "{app}\requirements.txt"
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".git\*,.venv\*,.codex\*,.agents\*,.pytest_cache\*,.docker-tmp\*,work\*,outputs\*,.env,packaging\windows\Output\*"
+Source: "{#SourceDir}\atlas.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\docker-compose.yml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\install-atlas.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\pytest.ini"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\.env.example"; DestDir: "{app}"; Flags: ignoreversion
+
+Source: "{#SourceDir}\backend\alembic.ini"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "{#SourceDir}\backend\app\*"; DestDir: "{app}\backend\app"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__\*,*.pyc"
+Source: "{#SourceDir}\backend\migrations\*"; DestDir: "{app}\backend\migrations"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__\*,*.pyc"
+Source: "{#SourceDir}\backend\scripts\*"; DestDir: "{app}\backend\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__\*,*.pyc"
+Source: "{#SourceDir}\backend\tests\*"; DestDir: "{app}\backend\tests"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__\*,*.pyc"
+
+Source: "{#SourceDir}\dashboard\*.html"; DestDir: "{app}\dashboard"; Flags: ignoreversion
+Source: "{#SourceDir}\dashboard\*.css"; DestDir: "{app}\dashboard"; Flags: ignoreversion
+Source: "{#SourceDir}\dashboard\*.js"; DestDir: "{app}\dashboard"; Flags: ignoreversion
+
+Source: "{#SourceDir}\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+
+Source: "{#SourceDir}\infra\postgres\init\*"; DestDir: "{app}\infra\postgres\init"; Flags: ignoreversion
+
+Source: "{#SourceDir}\mcp_server\*.py"; DestDir: "{app}\mcp_server"; Flags: ignoreversion
+
+Source: "{#SourceDir}\packaging\windows\README.md"; DestDir: "{app}\packaging\windows"; Flags: ignoreversion
+Source: "{#SourceDir}\packaging\windows\atlas.iss"; DestDir: "{app}\packaging\windows"; Flags: ignoreversion
+Source: "{#SourceDir}\packaging\windows\assets\*"; DestDir: "{app}\packaging\windows\assets"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Atlas Setup"; Filename: "{app}\atlas.cmd"; Parameters: "setup"; WorkingDir: "{app}"

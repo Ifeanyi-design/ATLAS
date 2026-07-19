@@ -20,7 +20,7 @@ ENV_PATH = PROJECT_ROOT / ".env"
 CODEX_CONFIG_PATH = PROJECT_ROOT / ".codex" / "config.toml"
 DEPENDENCY_MARKER_PATH = PROJECT_ROOT / "work" / ".requirements.sha256"
 LOCAL_POSTGRES_URL = "postgresql+psycopg://atlas:atlas@127.0.0.1:5434/atlas"
-LOCAL_SQLITE_URL = "sqlite:///./work/atlas.db"
+LOCAL_SQLITE_URL = f"sqlite:///{(PROJECT_ROOT / 'work' / 'atlas.db').resolve().as_posix()}"
 REQUIRED_MODULES = [
     "alembic",
     "fastapi",
@@ -37,6 +37,7 @@ WINDOWS_DOCKER_CANDIDATES = [
     Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "bin" / "docker.exe",
     Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "docker.exe",
 ]
+CODEX_SANDBOX_GROUP = "CodexSandboxUsers"
 
 
 def validate_runtime() -> None:
@@ -55,6 +56,33 @@ def _requirements_hash() -> str:
 
 def dependencies_are_available() -> bool:
     return all(importlib.util.find_spec(module) is not None for module in REQUIRED_MODULES)
+
+
+def ensure_codex_work_permissions() -> None:
+    """Let Codex-started Atlas write logs and local SQLite state on Windows."""
+    work_path = PROJECT_ROOT / "work"
+    work_path.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        return
+    try:
+        result = subprocess.run(
+            ["icacls", str(work_path), "/grant", f"{CODEX_SANDBOX_GROUP}:(OI)(CI)M"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        print(f"Warning: Atlas could not update work folder permissions automatically: {exc}")
+        return
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        print(
+            "Warning: Atlas could not grant Codex sandbox write access to "
+            f"{work_path}. If Atlas tools cannot write logs or SQLite data, run: "
+            f'icacls "{work_path}" /grant "{CODEX_SANDBOX_GROUP}:(OI)(CI)M"'
+        )
+        if detail:
+            print(f"Permission detail: {detail}")
 
 
 def install_dependencies() -> None:
@@ -203,6 +231,7 @@ def migrate_postgres(start_local_container: bool) -> None:
 
 def main() -> None:
     validate_runtime()
+    ensure_codex_work_permissions()
     try:
         install_dependencies()
     except (OSError, subprocess.CalledProcessError) as exc:

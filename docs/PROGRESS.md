@@ -184,6 +184,15 @@ Keep entries short. Update `PLAN.md` checkboxes as work is completed.
 - Compiled the Inno Setup installer at `packaging/windows/Output/AtlasSetup.exe`. The README now makes the EXE the preferred Windows judge path; publish it as a GitHub Release asset before submission.
 - Clarified trusted-team cloud sharing: each teammate uses the same cloud PostgreSQL URL and project name but runs `atlas attach` locally, so no absolute-path Codex config is copied between computers. Documented Docker ownership, the `atlas-db` container, automatic versus manual startup, and the local `5434 -> 5432` port mapping. Fixed manual Docker setup to apply the schema after the user starts the supplied container.
 
+## 2026-07-18 - Install-relative storage and packaging hardening
+
+- Anchored SQLite storage to the Atlas install folder. Fresh setup now writes an absolute install-local SQLite URL, and runtime settings normalize older relative `sqlite:///./work/atlas.db` values against the install root instead of the caller's current directory.
+- Updated `atlas.cmd` so all helper commands run from the Atlas install/source folder, then return to the caller's directory. This protects doctor/setup/API startup from accidental current-directory drift.
+- Hardened both installer paths. Inno Setup now packages explicit program files and refreshes only Atlas program folders on reinstall; `install-atlas.ps1` does the same. Runtime state `.env`, `.venv`, and `work` remain preserved, while stale nested folders such as `backend\backend` are removed during reinstall.
+- Updated doctor so SQLite checks database connectivity plus app schema initialization, while PostgreSQL keeps the Alembic revision check.
+- Added `docs/PRODUCT_EXPLAINER.md` for judge Q&A and self-testing: MCP lifecycle, storage modes, SQLite versus PostgreSQL/pgvector, intelligence modes, tool flows, dashboard checks, and direct storage inspection.
+- Refreshed README, runbook, packaging notes, `.env.example`, and the project brief to match the current six-tool MCP surface and install-once/attach-many behavior.
+
 ## Deferred to v2
 
 - Knowledge graphs, confidence scoring, time travel, full CLI, background watching, multi-model sharing, linked-project memory, and recency/importance weighting.

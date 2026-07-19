@@ -33,3 +33,45 @@ def test_attach_replaces_existing_atlas_blocks_and_preserves_other_config(tmp_pa
     assert 'command = "old"' not in content
     assert content.count("[mcp_servers.atlas]") == 1
     assert 'ATLAS_PROJECT_NAME = "new-project"' in content
+
+
+def test_attach_creates_agents_guidance(tmp_path) -> None:
+    agents_path = attach.upsert_agents_guidance(tmp_path)
+    content = agents_path.read_text(encoding="utf-8")
+
+    assert agents_path == tmp_path / "AGENTS.md"
+    assert "Atlas Memory Workflow" in content
+    assert "get_context" in content
+    assert attach.ATLAS_AGENTS_START in content
+    assert attach.ATLAS_AGENTS_END in content
+
+
+def test_attach_preserves_existing_agents_content_and_replaces_managed_block(tmp_path) -> None:
+    agents_path = tmp_path / "AGENTS.md"
+    agents_path.write_text(
+        "# Project Rules\n\n"
+        "- Keep existing user guidance.\n\n"
+        f"{attach.ATLAS_AGENTS_START}\n"
+        "old atlas text\n"
+        f"{attach.ATLAS_AGENTS_END}\n",
+        encoding="utf-8",
+    )
+
+    attach.upsert_agents_guidance(tmp_path)
+    content = agents_path.read_text(encoding="utf-8")
+
+    assert "- Keep existing user guidance." in content
+    assert "old atlas text" not in content
+    assert content.count(attach.ATLAS_AGENTS_START) == 1
+    assert content.count(attach.ATLAS_AGENTS_END) == 1
+
+
+def test_attach_updates_agents_override_when_present(tmp_path) -> None:
+    override_path = tmp_path / "AGENTS.override.md"
+    override_path.write_text("# Override Rules\n", encoding="utf-8")
+
+    agents_path = attach.upsert_agents_guidance(tmp_path)
+
+    assert agents_path == override_path
+    assert "Atlas Memory Workflow" in override_path.read_text(encoding="utf-8")
+    assert not (tmp_path / "AGENTS.md").exists()

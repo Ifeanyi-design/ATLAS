@@ -21,7 +21,7 @@ Codex ──MCP──> Atlas MCP server ──> FastAPI service ──> SQLite (
                                               (extract, curate, summarize, check conflicts)
 ```
 
-- **MCP server:** exposes `log_decision`, `get_context`, `search`, and a deliberate `override_conflict` action to Codex.
+- **MCP server:** exposes `log_decision`, `get_context`, `search`, `edit_memory`, `remove_memory`, and a deliberate `override_conflict` action to Codex.
 - **FastAPI:** owns validation, orchestration, project isolation, and dashboard API endpoints.
 - **SQLite or PostgreSQL + pgvector:** stores project-scoped decisions, structured UI/design context, summaries, conflicts, and embeddings. Local SQLite uses JSON embeddings with deterministic in-process cosine ranking; PostgreSQL keeps indexed pgvector retrieval for shared/team use.
 - **Low-cost model:** produces structured decision extraction, bounded retrieval curation, incremental summary updates, and conflict checks.
@@ -59,7 +59,7 @@ The project-local MCP server creates the configured project on its first call an
 
 ## V1 scope — build this and nothing more
 
-1. An MCP server exposing `log_decision`, `get_context`, `search`, and `override_conflict` for deliberate, auditable conflict exceptions.
+1. An MCP server exposing `log_decision`, `get_context`, `search`, `edit_memory`, `remove_memory`, and `override_conflict` for deliberate, auditable conflict exceptions and memory correction.
 2. Automatic decision extraction: a small/low-cost model turns an exchange into validated structured JSON and stores nothing if no real decision occurred.
 3. User-selectable storage: local SQLite without Docker, local PostgreSQL with Docker, or a supplied PostgreSQL URL. All reads and writes are strictly `project_id` scoped.
 4. Retrieval: pgvector returns 15–20 candidates; a small model curates a bounded relevant set.
@@ -68,7 +68,7 @@ The project-local MCP server creates the configured project on its first call an
 7. Fresh-session mode: skip context injection for that session but continue logging new decisions.
 8. Mid-task recall: Codex can call `search()` again when it seems to be missing context.
 9. Design/UI context: store structured JSON (for example colors, spacing, component patterns) and file paths separately from prose; directly inject it, without summarization, for UI-related prompts.
-10. A single dashboard page with decision timeline, project filter plus optional date range, live conflict panel, and a token-savings counter that compares fresh-session context to an equivalent long-session baseline.
+10. A single dashboard page with decision timeline, project filter plus optional date range, live conflict panel, editable memory, removal controls, and a token-savings counter that compares fresh-session context to an equivalent long-session baseline.
 
 ## Explicitly not in v1
 
