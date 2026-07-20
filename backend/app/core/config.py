@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     project_name: str = PROJECT_ROOT.name
     embedding_dimensions: int = 1536
     api_url: str = "http://127.0.0.1:8000"
+    api_host: str = "127.0.0.1"
     auto_start_api: bool = True
     auto_start_docker: bool = False
     dashboard_pin: SecretStr | None = None

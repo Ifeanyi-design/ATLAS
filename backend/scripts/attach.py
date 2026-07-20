@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ ATLAS_AGENTS_BLOCK = f"""{ATLAS_AGENTS_START}
 - After a material engineering decision is made, call Atlas `log_decision` with the decision, reason, and affected files.
 - If Atlas reports a conflict and the user chooses to continue, call Atlas `override_conflict` with the reason.
 - Use Atlas `edit_memory` or `remove_memory` only when the user explicitly asks to correct or delete saved Atlas memory.
+- Every Atlas tool accepts an optional `project_name`. Before calling any Atlas tool in this project, read `.codex/config.toml` in this project folder, find `ATLAS_PROJECT_NAME` under `[mcp_servers.atlas.env]`, and pass that exact value as `project_name`. This keeps each project's memories separate. If the file or value is missing, omit `project_name` and Atlas will use the current folder name.
 {ATLAS_AGENTS_END}
 """
 
@@ -27,17 +29,40 @@ def _toml_string(value: str) -> str:
     return json.dumps(value)
 
 
-def render_atlas_config(project_name: str) -> str:
+def atlas_launch_info(project_name: str) -> dict:
+    """Concrete launch command for the Atlas MCP server.
+
+    Uses an absolute server script path plus PYTHONPATH so the server starts
+    correctly no matter what working directory Codex (or a manual run) uses.
+    """
     python_path = (PROJECT_ROOT / ".venv" / "Scripts" / "python.exe").resolve().as_posix()
     install_path = PROJECT_ROOT.resolve().as_posix()
+    server_path = (PROJECT_ROOT / "mcp_server" / "server.py").resolve().as_posix()
+    return {
+        "command": python_path,
+        "args": [server_path],
+        "cwd": install_path,
+        "env": {
+            "ATLAS_PROJECT_NAME": project_name,
+            "PYTHONPATH": install_path,
+        },
+    }
+
+
+def render_atlas_config(project_name: str) -> str:
+    info = atlas_launch_info(project_name)
+    env_lines = "\n".join(
+        f"{_toml_string(key)} = {_toml_string(value)}" for key, value in info["env"].items()
+    )
     return (
         "[mcp_servers.atlas]\n"
-        f"command = {_toml_string(python_path)}\n"
-        'args = ["-m", "mcp_server.server"]\n'
-        f"cwd = {_toml_string(install_path)}\n"
+        f"command = {_toml_string(info['command'])}\n"
+        f"args = {_toml_string(info['args'])}\n"
+        f"cwd = {_toml_string(info['cwd'])}\n"
+        "startup_timeout_sec = 180\n"
         "\n"
         "[mcp_servers.atlas.env]\n"
-        f"ATLAS_PROJECT_NAME = {_toml_string(project_name)}\n"
+        f"{env_lines}\n"
     )
 
 
@@ -62,6 +87,38 @@ def write_project_config(target_root: Path, project_name: str) -> Path:
     existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     preserved = remove_existing_atlas_blocks(existing)
     atlas_block = render_atlas_config(project_name)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    content = f"{preserved}\n\n{atlas_block}" if preserved else atlas_block
+    config_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+    return config_path
+
+
+def global_codex_config_path() -> Path:
+    """Resolve the user-global Codex config (~/.codex/config.toml).
+
+    Codex Desktop only loads MCP servers from this global file, not from
+    project-local .codex/config.toml. Honour CODEX_HOME when set.
+    """
+    home = os.environ.get("CODEX_HOME")
+    base = Path(home) if home else (Path.home() / ".codex")
+    return base / "config.toml"
+
+
+def write_global_config() -> Path:
+    """Register Atlas in the global Codex config so Codex Desktop sees it.
+
+    Project-local MCP entries are ignored by Codex Desktop, so the Atlas MCP
+    server must also live in the user-global config.toml to appear in the
+    desktop app's MCP list.
+
+    The global entry uses the Atlas *install* name as a stable label. Per-project
+    identity is resolved at runtime from the active Codex workspace, so re-attaching
+    a different project must NOT overwrite this entry's project name.
+    """
+    config_path = global_codex_config_path()
+    existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    preserved = remove_existing_atlas_blocks(existing)
+    atlas_block = render_atlas_config(PROJECT_ROOT.name)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     content = f"{preserved}\n\n{atlas_block}" if preserved else atlas_block
     config_path.write_text(content.rstrip() + "\n", encoding="utf-8")
@@ -109,6 +166,16 @@ def main(argv: list[str] | None = None) -> int:
     if not project_name:
         raise SystemExit("Atlas project name cannot be empty.")
     config_path = write_project_config(target_root, project_name)
+    try:
+        global_path = write_global_config()
+        print(f"Global Codex config (Codex Desktop MCP): {global_path}")
+    except OSError as exc:
+        print(
+            "Warning: Atlas could not update the global Codex config "
+            f"({global_codex_config_path()}). The project-local MCP entry was written, "
+            f"but Codex Desktop only reads MCP servers from the global config, so the "
+            f"Atlas tools may not appear there. Fix: {exc}"
+        )
     agents_path = None if args.no_agents else upsert_agents_guidance(target_root)
     print(f"Atlas attached {target_root} as project {project_name}.")
     print(f"Codex config: {config_path}")

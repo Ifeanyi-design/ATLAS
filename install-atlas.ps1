@@ -64,12 +64,6 @@ function Grant-AtlasWorkPermission {
   $workPath = Join-Path $Target "work"
   New-Item -ItemType Directory -Path $workPath -Force | Out-Null
   $group = "CodexSandboxUsers"
-  try {
-    $null = New-Object System.Security.Principal.NTAccount($group).Translate([System.Security.Principal.SecurityIdentifier])
-  } catch {
-    Write-Warning "CodexSandboxUsers was not found. If Atlas tools cannot write logs or SQLite data, grant Modify permission on $workPath to the Codex sandbox user group."
-    return
-  }
   & icacls $workPath /grant "${group}:(OI)(CI)M" | Out-Null
   if ($LASTEXITCODE -ne 0) {
     Write-Warning "Could not grant CodexSandboxUsers Modify permission on $workPath. If Atlas tools fail to write, run: icacls `"$workPath`" /grant `"CodexSandboxUsers:(OI)(CI)M`""

@@ -64,7 +64,7 @@ FastAPI service
    +-- PostgreSQL + pgvector for shared or production-like memory
 ```
 
-Codex starts the Atlas MCP server from the project-local `.codex/config.toml`. The MCP server starts the local FastAPI service only when a tool call needs it. The database stores projects, sessions, decisions, embeddings, structured design context, and conflict events.
+Codex starts the Atlas MCP server using the command in a Codex config file. Codex **Desktop** reads the server list from the user-global file at `~/.codex/config.toml`, so `atlas attach` always writes the Atlas server there first. It also writes a small project-local `.codex/config.toml` (used by the Codex command-line tool and to record the project name). The MCP server starts the local FastAPI service only when a tool call needs it. The database stores projects, sessions, decisions, embeddings, structured design context, and conflict events.
 
 Atlas is intentionally not a background transcript recorder. It stores only material engineering decisions that pass extraction and validation.
 
@@ -96,7 +96,7 @@ This is the self-contained Windows path for judges who choose to run from source
    .\.venv\Scripts\python.exe backend\scripts\setup.py
    ```
 
-3. Choose **SQLite** when asked. Setup installs dependencies and writes the local `.env` plus `.codex/config.toml`.
+3. Choose **SQLite** when asked. Setup installs dependencies and writes the install-level `.env` and registers the Atlas MCP server in your Codex config (the global file for Codex Desktop, plus a project-local file).
 4. Check the installation:
 
    ```powershell
@@ -144,7 +144,7 @@ For a live Build Week demo, cloud PostgreSQL is the strongest story if the datab
 4. Setup writes:
 
    - `.env` with Atlas settings.
-   - `.codex/config.toml` with the MCP command Codex should run.
+   - your Codex config with the Atlas MCP command and server (written to the global `~/.codex/config.toml` for Codex Desktop, and a project-local `.codex/config.toml`).
    - `work/.requirements.sha256` so repeated setup runs can skip dependency reinstall when requirements have not changed.
 
 5. Open a fresh Codex task from this project folder. If Codex was already open before setup, close that task and start a new one.
@@ -198,8 +198,9 @@ The Atlas block says:
 Before making architecture, storage, API, data-model, or UI-pattern changes, call Atlas `get_context` with the user's request.
 During work, use Atlas `search` when prior project decisions may matter.
 After a material engineering decision is made, call Atlas `log_decision` with the decision, reason, and affected files.
-If Atlas reports a conflict and the user chooses to continue, call `override_conflict` with the reason.
-Use `edit_memory` or `remove_memory` only when the user explicitly asks to correct or delete saved Atlas memory.
+If Atlas reports a conflict and the user chooses to continue, call Atlas `override_conflict` with the reason.
+Use Atlas `edit_memory` or `remove_memory` only when the user explicitly asks to correct or delete saved Atlas memory.
+Every Atlas tool accepts an optional `project_name`. Before calling any Atlas tool in this project, read `.codex/config.toml` in this project folder, find `ATLAS_PROJECT_NAME` under `[mcp_servers.atlas.env]`, and pass that exact value as `project_name`. This keeps each project's memories separate. If the file or value is missing, omit `project_name` and Atlas will use the current folder name.
 ```
 
 Start a fresh Codex task after changing these files. Codex reads project instructions when the session starts, so an already-open task may not see the new guidance.
@@ -286,7 +287,7 @@ cd C:\path\to\the\team-project
 atlas attach . --project-name bizlive-dashboard
 ```
 
-Do not copy another teammate's `.codex/config.toml`; it contains an absolute path to that person's Atlas installation. `atlas attach` generates the correct local config for each person. The shared project name resolves to the same project ID in the common database. Atlas v1 assumes a trusted team and does not yet provide per-user roles or project permissions.
+Do not copy another teammate's Codex config (the global `~/.codex/config.toml` or the project's `.codex/config.toml`); it contains an absolute path to that person's Atlas installation. `atlas attach` generates the correct config for each person. The shared project name resolves to the same project ID in the common database. Atlas v1 assumes a trusted team and does not yet provide per-user roles or project permissions.
 
 ### Docker port and ownership
 
@@ -318,7 +319,7 @@ If Atlas is not on PATH, use the full command:
 C:\Users\Admin\Atlas\atlas attach C:\path\to\my-project --project-name my-project
 ```
 
-`atlas attach` writes that project's `.codex/config.toml` with the shared Atlas MCP command and `[mcp_servers.atlas.env] ATLAS_PROJECT_NAME`. The MCP sends that project name to the API, so one running Atlas API can serve multiple projects without logging them all under the install folder name.
+`atlas attach` writes that project's `.codex/config.toml` **and your global `~/.codex/config.toml`** with the shared Atlas MCP command and `[mcp_servers.atlas.env] ATLAS_PROJECT_NAME`. The MCP sends that project name to the API, so one running Atlas API can serve multiple projects without logging them all under the install folder name.
 
 The older copy-or-clone-per-project workflow still works, but it is no longer the easiest path.
 
@@ -333,24 +334,40 @@ atlas stop
 
 `atlas stop` stops the local Atlas API listening on the configured `ATLAS_API_URL` port after confirming the health endpoint identifies as `atlas-api`. It is useful when you want to free port `8000` or force a fresh API start. Atlas does not currently auto-shut down after idle time; that is a possible later feature.
 
-## Dashboard PIN
+## Dashboard PIN and opening it on your phone or another device
 
-For localhost-only use, no PIN is required. Before exposing the dashboard on your local network, set:
+By default the dashboard and API only listen on your own computer (`127.0.0.1`). That is the safest setting.
+
+**Set a PIN** (do this before opening it to other devices). Add this to the Atlas install folder's `.env` file:
 
 ```env
 ATLAS_DASHBOARD_PIN=123456
 ```
 
-When a PIN is configured, non-health API routes require the `X-Atlas-Dashboard-Pin` header and the dashboard prompts for the PIN before loading memory.
+When a PIN is set, the dashboard asks for it before showing any memory, and the API requires it on every request.
+
+**Let other devices on your network reach it.** Add this to `.env` (only after the PIN is set):
+
+```env
+ATLAS_API_HOST=0.0.0.0
+```
+
+Then restart Atlas (quit and reopen Codex, or run `atlas stop` and open a fresh task). On your phone or another computer, open:
+
+```text
+http://<your-computer-ip>:8000/dashboard/
+```
+
+Find your computer's IP with `ipconfig` (look for `IPv4 Address`). Only devices on the same Wi-Fi or network can reach it, and they need the PIN. Do not expose this on a public network. On your own computer you can still use `http://127.0.0.1:8000/dashboard/`.
 
 ## Supported Platforms
 
-Atlas is a local developer tool. The supported Build Week judge path is Windows 10/11 x64 with PowerShell and Codex Desktop. The architecture is intentionally portable to macOS and Linux because the backend is Python/FastAPI, the storage choices are SQLite or PostgreSQL, and the MCP server is launched through a project-local command, but those platforms are not the primary packaged/demo path for this submission.
+Atlas is a local developer tool. The supported Build Week judge path is Windows 10/11 x64 with PowerShell and Codex Desktop. The architecture is intentionally portable to macOS and Linux because the backend is Python/FastAPI, the storage choices are SQLite or PostgreSQL, and the MCP server is launched through a Codex config command, but those platforms are not the primary packaged/demo path for this submission.
 
 Platform notes:
 
 - Windows 10/11 x64: primary tested and supported Build Week platform.
-- Codex Desktop: required for the project-local MCP workflow.
+- Codex Desktop: required. It loads the Atlas MCP server from your global `~/.codex/config.toml`.
 - PowerShell: used by the Windows installer and setup commands.
 - Python 3.11 or newer: required for source setup; the installer creates Atlas's `.venv` from an installed Python.
 - macOS/Linux: expected to work with Python 3.11+, but not packaged or fully tested for the Build Week judge path.

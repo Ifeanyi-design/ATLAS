@@ -9,22 +9,23 @@ from __future__ import annotations
 
 import json
 import importlib.util
-import queue
+import os
 import re
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from setup import CODEX_CONFIG_PATH, PROJECT_ROOT, REQUIRED_MODULES, docker_is_ready, find_docker_command
+from attach import atlas_launch_info, global_codex_config_path, write_global_config, write_project_config
 
 
 BACKEND_PATH = PROJECT_ROOT / "backend"
 if str(BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(BACKEND_PATH))
+MCP_HANDSHAKE_TIMEOUT_SECONDS = 90
 
 
 failures = 0
@@ -74,18 +75,48 @@ def check_dependencies() -> None:
         pass_("Python dependencies are importable.")
 
 
-def check_codex_config() -> None:
+def check_codex_config(fix: bool = False) -> None:
     if not CODEX_CONFIG_PATH.exists():
-        fail(".codex/config.toml is missing; rerun setup.")
+        if fix:
+            write_project_config(PROJECT_ROOT, PROJECT_ROOT.name)
+            pass_("Wrote Atlas MCP server to the project .codex/config.toml.")
+            return
+        fail(".codex/config.toml is missing; rerun setup or `atlas doctor --fix`.")
         return
     content = CODEX_CONFIG_PATH.read_text(encoding="utf-8")
     if "[mcp_servers.atlas]" not in content:
+        if fix:
+            write_project_config(PROJECT_ROOT, PROJECT_ROOT.name)
+            pass_("Re-added Atlas MCP server to the project .codex/config.toml.")
+            return
         fail(".codex/config.toml does not register the Atlas MCP server.")
         return
-    if "mcp_server.server" not in content:
+    if "mcp_server" not in content:
         fail(".codex/config.toml has an Atlas entry, but it does not point at mcp_server.server.")
         return
     pass_(".codex/config.toml registers the Atlas MCP server.")
+
+
+def check_global_codex_config(fix: bool = False) -> None:
+    """Codex Desktop only reads MCP servers from the global config.toml.
+
+    It can also rewrite that file on startup and drop custom MCP blocks, so
+    this check verifies the entry exists and can re-add it when --fix is given.
+    """
+    global_path = global_codex_config_path()
+    if not global_path.exists() or "[mcp_servers.atlas]" not in global_path.read_text(encoding="utf-8"):
+        if fix:
+            write_global_config(PROJECT_ROOT.name)
+            pass_("Re-added Atlas MCP server to the global Codex config (Codex Desktop visibility).")
+            return
+        fail(
+            "Global Codex config ("
+            f"{global_path}) is missing the Atlas MCP server. Codex Desktop only "
+            "loads MCP servers from this global file, so the Atlas tools will not "
+            "appear there. Run `atlas doctor --fix` or `atlas attach <folder>`."
+        )
+        return
+    pass_("Global Codex config registers the Atlas MCP server (visible in Codex Desktop).")
 
 
 def check_mcp_handshake() -> None:
@@ -99,33 +130,25 @@ def check_mcp_handshake() -> None:
             "clientInfo": {"name": "atlas-doctor", "version": "0"},
         },
     }
+    info = atlas_launch_info(PROJECT_ROOT.name)
     started = time.monotonic()
-    process: subprocess.Popen[str] | None = None
     try:
-        process = subprocess.Popen(
-            [sys.executable, "-m", "mcp_server.server"],
-            cwd=PROJECT_ROOT,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+        process = subprocess.run(
+            [info["command"], *info["args"]],
+            cwd=info["cwd"],
+            env={**os.environ, **info["env"]},
+            input=json.dumps(message) + "\n",
+            capture_output=True,
             text=True,
             encoding="utf-8",
+            timeout=MCP_HANDSHAKE_TIMEOUT_SECONDS,
         )
-        assert process.stdin is not None
-        assert process.stdout is not None
-        output: queue.Queue[str] = queue.Queue()
-        threading.Thread(target=lambda: output.put(process.stdout.readline()), daemon=True).start()
-        process.stdin.write(json.dumps(message) + "\n")
-        process.stdin.flush()
-        try:
-            line = output.get(timeout=30)
-        except queue.Empty:
-            stderr = process.stderr.read(500) if process.stderr is not None and process.poll() is not None else ""
-            fail(f"Atlas MCP server did not answer initialize within 30s. {stderr}".rstrip())
+        if process.returncode not in {0, None}:
+            fail(f"Atlas MCP server exited with code {process.returncode}. {process.stderr[:500]}".rstrip())
             return
+        line = next((candidate for candidate in process.stdout.splitlines() if candidate.strip()), "")
         if not line:
-            stderr = process.stderr.read(500) if process.stderr is not None else ""
-            fail(f"Atlas MCP server exited before answering initialize. {stderr}".rstrip())
+            fail(f"Atlas MCP server exited before answering initialize. {process.stderr[:500]}".rstrip())
             return
         payload = json.loads(line)
         server_name = payload.get("result", {}).get("serverInfo", {}).get("name")
@@ -134,15 +157,11 @@ def check_mcp_handshake() -> None:
             pass_(f"Atlas MCP stdio handshake succeeded in {elapsed:.1f}s.")
         else:
             fail(f"Atlas MCP initialize returned an unexpected response: {payload}")
+    except subprocess.TimeoutExpired as exc:
+        stderr = (exc.stderr or "")[:500] if isinstance(exc.stderr, str) else ""
+        fail(f"Atlas MCP server did not answer initialize within {MCP_HANDSHAKE_TIMEOUT_SECONDS}s. {stderr}".rstrip())
     except Exception as exc:
         fail(f"Atlas MCP stdio handshake failed: {exc}")
-    finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                process.kill()
 
 
 def check_settings() -> tuple[str | None, str | None, bool]:
@@ -248,11 +267,13 @@ def check_api(api_url: str | None) -> None:
 
 
 def main() -> int:
-    print("Atlas doctor")
+    fix = "--fix" in sys.argv[1:]
+    print("Atlas doctor" + (" (fix mode)" if fix else ""))
     print("============")
     check_python()
     check_dependencies()
-    check_codex_config()
+    check_codex_config(fix)
+    check_global_codex_config(fix)
     check_mcp_handshake()
     storage_mode, api_url, auto_start_docker = check_settings()
     check_docker(storage_mode, auto_start_docker)
@@ -261,6 +282,8 @@ def main() -> int:
     print("------------")
     if failures:
         print(f"Doctor found {failures} failure(s) and {warnings} warning(s).")
+        if not fix:
+            print("Re-run with `atlas doctor --fix` to repair config automatically.")
         return 1
     print(f"Doctor found no failures and {warnings} warning(s).")
     return 0

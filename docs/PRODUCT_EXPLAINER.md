@@ -16,7 +16,7 @@ Atlas has three runtime pieces:
 2. The local FastAPI service owns validation, database access, dashboard API routes, and static dashboard serving.
 3. The database stores projects, sessions, decisions, embeddings, structured design context, summaries, and conflict events.
 
-Codex starts the MCP server from the attached project's `.codex/config.toml`. The MCP server starts the FastAPI service on demand when a tool is called. The API then reads or writes SQLite or PostgreSQL depending on `.env`.
+Codex starts the MCP server from your Codex config. Codex Desktop uses the global `~/.codex/config.toml`, which `atlas attach` writes. The MCP server starts the FastAPI service on demand when a tool is called. The API then reads or writes SQLite or PostgreSQL depending on `.env`.
 
 ## One install, many projects
 
@@ -28,7 +28,7 @@ Each project runs:
 atlas attach C:\path\to\project --project-name project-name
 ```
 
-That writes the project-local `.codex/config.toml` with:
+That writes your global Codex config (and a project-local file) with:
 
 - the absolute path to the installed Atlas Python executable;
 - `cwd` set to the Atlas install folder;

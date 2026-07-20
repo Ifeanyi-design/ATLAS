@@ -15,7 +15,7 @@ C:\Users\Admin\Atlas
   dashboard
 ```
 
-Each Codex project keeps only a small `.codex/config.toml` that points to the shared Atlas install and passes its own `ATLAS_PROJECT_NAME`.
+Each Codex project keeps a small project-local `.codex/config.toml` for its name, while `atlas attach` also writes the Atlas server into your global `~/.codex/config.toml` so Codex Desktop can start it.
 
 ## Why
 
@@ -42,13 +42,17 @@ The attach command writes:
 
 ```toml
 [mcp_servers.atlas]
-command = "C:/Users/Admin/Atlas/.venv/Scripts/python.exe"
-args = ["-m", "mcp_server.server"]
-cwd = "C:/Users/Admin/Atlas"
+command = "C:/path/to/your/Atlas/.venv/Scripts/python.exe"
+args = ["C:/path/to/your/Atlas/mcp_server/server.py"]
+cwd = "C:/path/to/your/Atlas"
+startup_timeout_sec = 180
 
 [mcp_servers.atlas.env]
-ATLAS_PROJECT_NAME = "bizlive-dashboard"
+"ATLAS_PROJECT_NAME" = "bizlive-dashboard"
+"PYTHONPATH" = "C:/path/to/your/Atlas"
 ```
+
+The paths are whatever install folder you chose. `atlas attach` generates the correct local paths for each machine, so do not copy this block between computers.
 
 ## Installer Direction
 
@@ -85,4 +89,4 @@ Do not edit raw database rows directly from the UI without rebuilding derived st
 
 Keep the dashboard web-based. It is easier for Codex, local debugging, and future phone access.
 
-PIN protection is optional through `ATLAS_DASHBOARD_PIN`. Localhost development can leave it unset. Any future LAN mode should set a PIN before binding the API beyond `127.0.0.1`.
+PIN protection is optional through `ATLAS_DASHBOARD_PIN`. Localhost development can leave it unset. LAN mode now exists: set `ATLAS_API_HOST=0.0.0.0` **after** setting `ATLAS_DASHBOARD_PIN`, otherwise the dashboard would be open on the network without protection.

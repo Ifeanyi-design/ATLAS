@@ -14,7 +14,7 @@ Atlas has three pieces:
 2. **The Atlas API** is the librarian. It knows how to read and write the notebook.
 3. **The Atlas MCP server** is the assistant at your Codex desk. Codex talks to it through MCP tools.
 
-You normally do **not** start the MCP server yourself. Codex starts it from `.codex/config.toml` when you open a fresh task in this project. The MCP server then starts the local Atlas API when it needs it.
+You normally do **not** start the MCP server yourself. Codex starts it from your Codex config when you open a fresh task. Codex Desktop uses the global `~/.codex/config.toml`, and `atlas attach` writes the Atlas server there (plus a small project-local file for the project name). The MCP server then starts the local Atlas API when it needs it.
 
 What you may need to start yourself is the database dependency:
 
@@ -35,7 +35,7 @@ From the Atlas install folder in PowerShell, use:
 
 `setup` is only for first-time setup or changing storage. It asks you to choose SQLite, local Docker PostgreSQL, or an existing cloud PostgreSQL database. When you choose cloud PostgreSQL, it asks for the database URL and saves it in this project's `.env` file.
 
-`attach` writes a project-local `.codex/config.toml` so Codex can start the shared Atlas MCP server for that project. It also writes `ATLAS_PROJECT_NAME` into the MCP env block, so a shared API keeps project memory separated by name and ID.
+`attach` writes your global `~/.codex/config.toml` (so Codex Desktop can start the shared Atlas MCP server) and a small project-local `.codex/config.toml`. It also writes `ATLAS_PROJECT_NAME` into the MCP env block, so a shared API keeps project memory separated by name and ID.
 
 `attach` also creates or updates the active Codex instruction file for that folder. If `AGENTS.override.md` exists, Atlas appends its marked instruction block there because Codex gives that file priority. Otherwise Atlas uses `AGENTS.md`. Existing user guidance is preserved, and rerunning attach replaces only the Atlas-managed block. Use `--no-agents` when you want to manage Codex instructions yourself.
 
@@ -49,7 +49,7 @@ For normal daily use, you usually do not need to run a command. Start Docker Des
 
 There are two different flows: first-time setup and normal daily use.
 
-First-time setup means Atlas has not written `.env` and `.codex/config.toml` for this project yet. Daily use means setup is already done and you are only opening Codex to use memory.
+First-time setup means Atlas has not written `.env` and your Codex config yet. Daily use means setup is already done and you are only opening Codex to use memory.
 
 ### SQLite
 
@@ -224,7 +224,7 @@ If Atlas is not on PATH, use the full path:
 C:\Users\Admin\Atlas\atlas attach C:\path\to\project --project-name project-name
 ```
 
-The important parts are `.codex/config.toml` and the Codex instruction file. Codex needs the config file in the project it opens so it knows how to start the Atlas MCP server. The attached config points to the shared Atlas install and passes the project name through `[mcp_servers.atlas.env]`. The instruction file tells Codex when to call Atlas tools during normal work.
+The important parts are your Codex config and the Codex instruction file. Codex Desktop needs the Atlas server in the global `~/.codex/config.toml` so it knows how to start the Atlas MCP server. The attached config points to the shared Atlas install and passes the project name through `[mcp_servers.atlas.env]`. The instruction file tells Codex when to call Atlas tools during normal work.
 
 All attached projects can share one install-level database. Atlas keeps the data separated by the project row resolved from `ATLAS_PROJECT_NAME`, then filters every decision, search, conflict, edit, and deletion by `project_id`.
 

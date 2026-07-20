@@ -43,7 +43,7 @@ The installer defaults to:
 
 but the person can choose any folder. The destination page is forced on so a reinstall does not silently reuse a previous Atlas location without showing it. For the current local workflow, `C:\Users\Admin\Atlas` is also fine.
 
-The installer uses the selected folder for the optional user PATH entry. When `atlas attach` runs, it writes that same folder into the project's `.codex/config.toml`. If Atlas is later moved or reinstalled elsewhere, rerun `atlas attach . --project-name <name>` once in each attached project.
+The installer uses the selected folder for the optional user PATH entry. When `atlas attach` runs, it writes that same folder into your global `~/.codex/config.toml` and the project's `.codex/config.toml`. If Atlas is later moved or reinstalled elsewhere, rerun `atlas attach . --project-name <name>` once in each attached project.
 
 ## MSI Later
 

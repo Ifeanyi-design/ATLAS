@@ -197,6 +197,38 @@ def write_environment(storage_mode: str, database_url: str, auto_start_docker: b
     ENV_PATH.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
 
 
+def _atlas_config_block(python_path: str, project_path: str, project_name: str) -> str:
+    install_path = project_path
+    server_path = (PROJECT_ROOT / "mcp_server" / "server.py").resolve().as_posix()
+    return (
+        "[mcp_servers.atlas]\n"
+        f'command = "{python_path}"\n'
+        f'args = ["{server_path}"]\n'
+        f'cwd = "{install_path}"\n'
+        "startup_timeout_sec = 180\n"
+        "\n"
+        "[mcp_servers.atlas.env]\n"
+        f'ATLAS_PROJECT_NAME = "{project_name}"\n'
+        f'PYTHONPATH = "{install_path}"\n'
+    )
+
+
+def _remove_atlas_blocks(content: str) -> str:
+    lines = content.splitlines()
+    output: list[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped in {"[mcp_servers.atlas]", "[mcp_servers.atlas.env]"}:
+            skipping = True
+            continue
+        if skipping and stripped.startswith("[") and stripped.endswith("]"):
+            skipping = False
+        if not skipping:
+            output.append(line)
+    return "\n".join(output).rstrip()
+
+
 def write_codex_config() -> None:
     """Bind this project to the Python environment that ran setup."""
     CODEX_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -205,19 +237,35 @@ def write_codex_config() -> None:
     project_name = PROJECT_ROOT.name
     try:
         CODEX_CONFIG_PATH.write_text(
-            "[mcp_servers.atlas]\n"
-            f'command = "{python_path}"\n'
-            'args = ["-m", "mcp_server.server"]\n'
-            f'cwd = "{project_path}"\n'
-            "\n"
-            "[mcp_servers.atlas.env]\n"
-            f'ATLAS_PROJECT_NAME = "{project_name}"\n',
+            _atlas_config_block(python_path, project_path, project_name),
             encoding="utf-8",
         )
     except PermissionError as exc:
         raise SystemExit(
             "Codex is using .codex/config.toml. Close Codex, rerun setup, then open a fresh Atlas task."
         ) from exc
+    # Codex Desktop only loads MCP servers from the user-global config.toml,
+    # not from this project-local one, so register Atlas there as well.
+    try:
+        write_global_codex_config(python_path, project_path, project_name)
+    except OSError as exc:
+        print(
+            "Warning: Atlas registered the project-local MCP server, but could not "
+            f"update the global Codex config ({exc}). Codex Desktop may not list the "
+            "Atlas MCP server until the global config is updated."
+        )
+
+
+def write_global_codex_config(python_path: str, project_path: str, project_name: str) -> None:
+    home = os.environ.get("CODEX_HOME")
+    base = Path(home) if home else (Path.home() / ".codex")
+    global_path = base / "config.toml"
+    existing = global_path.read_text(encoding="utf-8") if global_path.exists() else ""
+    preserved = _remove_atlas_blocks(existing)
+    block = _atlas_config_block(python_path, project_path, project_name)
+    global_path.parent.mkdir(parents=True, exist_ok=True)
+    content = f"{preserved}\n\n{block}" if preserved else block
+    global_path.write_text(content.rstrip() + "\n", encoding="utf-8")
 
 
 def migrate_postgres(start_local_container: bool) -> None:

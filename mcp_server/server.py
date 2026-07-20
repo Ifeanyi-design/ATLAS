@@ -106,6 +106,15 @@ def ensure_local_api() -> None:
         return
 
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    bind_host = settings.api_host
+    if bind_host not in {"127.0.0.1", "localhost"} and settings.dashboard_pin is None:
+        print(
+            "Atlas warning: the dashboard API is bound to a non-local address "
+            f"({bind_host}) with no ATLAS_DASHBOARD_PIN set. Anyone on the network "
+            "can read or delete memory. Set ATLAS_DASHBOARD_PIN before exposing Atlas "
+            "beyond this machine.",
+            file=sys.stderr,
+        )
     log_path = PROJECT_ROOT / "work" / "atlas-api.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("a", encoding="utf-8")
@@ -118,7 +127,7 @@ def ensure_local_api() -> None:
             "--app-dir",
             str(PROJECT_ROOT / "backend"),
             "--host",
-            "127.0.0.1",
+            bind_host,
             "--port",
             str(port),
         ],
@@ -138,13 +147,43 @@ def ensure_local_api() -> None:
     raise RuntimeError(f"Atlas could not start its local API. See {log_path}.")
 
 
-def _project_id(project_id: str | None) -> str:
+def _resolve_project_name() -> str:
+    """Pick the Atlas project name for this Codex session.
+
+    Codex injects CODEX_WORKSPACE_ROOT (the active project folder) into the MCP
+    server environment, so different Codex projects isolate their memory even
+    though a single global MCP server entry serves them all. Fall back to the
+    configured ATLAS_PROJECT_NAME (set by `atlas attach`) and finally to the
+    install's default project name.
+    """
+    workspace = os.environ.get("CODEX_WORKSPACE_ROOT")
+    if workspace:
+        name = Path(workspace).resolve().name
+        if name:
+            return name
+    env_name = os.environ.get("ATLAS_PROJECT_NAME")
+    if env_name:
+        return env_name
+    return get_settings().project_name
+
+
+def _project_id(project_id: str | None = None, project_name: str | None = None) -> str:
     global _default_project_id
     if project_id:
         return project_id
+    if project_name:
+        payload = json.dumps({"project_name": project_name}).encode()
+        request = Request(
+            f"{get_settings().api_url.rstrip('/')}/api/v1/projects/default",
+            data=payload,
+            headers=_headers(),
+            method="POST",
+        )
+        with urlopen(request, timeout=30) as response:
+            return str(json.loads(response.read().decode())["project_id"])
     if _default_project_id:
         return _default_project_id
-    payload = json.dumps({"project_name": get_settings().project_name}).encode()
+    payload = json.dumps({"project_name": _resolve_project_name()}).encode()
     request = Request(
         f"{get_settings().api_url.rstrip('/')}/api/v1/projects/default",
         data=payload,
@@ -161,10 +200,10 @@ def _session_id(session_id: str | None) -> str:
 
 
 @mcp.tool()
-def log_decision(exchange: str, project_id: str | None = None, session_id: str | None = None) -> dict[str, Any]:
+def log_decision(exchange: str, project_id: str | None = None, session_id: str | None = None, project_name: str | None = None) -> dict[str, Any]:
     """Extract and persist a material engineering decision; project/session IDs are automatic by default."""
     ensure_local_api()
-    resolved_project_id = _project_id(project_id)
+    resolved_project_id = _project_id(project_id, project_name)
     resolved_session_id = _session_id(session_id)
     payload = json.dumps({"project_id": resolved_project_id, "session_id": resolved_session_id, "exchange": exchange}).encode()
     request = Request(
@@ -184,10 +223,10 @@ def log_decision(exchange: str, project_id: str | None = None, session_id: str |
 
 
 @mcp.tool()
-def get_context(prompt: str, fresh_session: bool = False, project_id: str | None = None, session_id: str | None = None) -> dict[str, Any]:
+def get_context(prompt: str, fresh_session: bool = False, project_id: str | None = None, session_id: str | None = None, project_name: str | None = None) -> dict[str, Any]:
     """Get scoped context before work; IDs are automatic unless a specific project/session is supplied."""
     ensure_local_api()
-    resolved_project_id = _project_id(project_id)
+    resolved_project_id = _project_id(project_id, project_name)
     resolved_session_id = _session_id(session_id)
     payload = json.dumps(
         {"project_id": resolved_project_id, "session_id": resolved_session_id, "prompt": prompt, "fresh_session": fresh_session}
@@ -209,10 +248,10 @@ def get_context(prompt: str, fresh_session: bool = False, project_id: str | None
 
 
 @mcp.tool()
-def search(query: str, limit: int = 10, project_id: str | None = None) -> dict[str, Any]:
+def search(query: str, limit: int = 10, project_id: str | None = None, project_name: str | None = None) -> dict[str, Any]:
     """Explicitly recall relevant project decisions; the current project is automatic by default."""
     ensure_local_api()
-    resolved_project_id = _project_id(project_id)
+    resolved_project_id = _project_id(project_id, project_name)
     payload = json.dumps({"project_id": resolved_project_id, "query": query, "limit": min(max(limit, 1), 20)}).encode()
     request = Request(
         f"{get_settings().api_url.rstrip('/')}/api/v1/search",
@@ -239,10 +278,11 @@ def remove_memory(
     delete_all: bool = False,
     confirmation: str | None = None,
     project_id: str | None = None,
+    project_name: str | None = None,
 ) -> dict[str, Any]:
     """Remove selected memories, a UTC time range, or all project memory with exact confirmation."""
     ensure_local_api()
-    resolved_project_id = _project_id(project_id)
+    resolved_project_id = _project_id(project_id, project_name)
     selected_ids = list(decision_ids or [])
     if decision_id is not None:
         selected_ids.append(decision_id)
@@ -279,10 +319,11 @@ def edit_memory(
     reason: str | None = None,
     affected_files: list[str] | None = None,
     project_id: str | None = None,
+    project_name: str | None = None,
 ) -> dict[str, Any]:
     """Edit a known saved memory by ID. Use search first when you need to find its ID."""
     ensure_local_api()
-    resolved_project_id = _project_id(project_id)
+    resolved_project_id = _project_id(project_id, project_name)
     payload = json.dumps(
         {
             "project_id": resolved_project_id,
@@ -308,10 +349,10 @@ def edit_memory(
 
 
 @mcp.tool()
-def override_conflict(conflict_event_id: str, reason: str, project_id: str | None = None) -> dict[str, Any]:
+def override_conflict(conflict_event_id: str, reason: str, project_id: str | None = None, project_name: str | None = None) -> dict[str, Any]:
     """Record a deliberate, explained decision to continue despite an Atlas conflict warning."""
     ensure_local_api()
-    resolved_project_id = _project_id(project_id)
+    resolved_project_id = _project_id(project_id, project_name)
     payload = json.dumps({"project_id": resolved_project_id, "reason": reason}).encode()
     request = Request(
         f"{get_settings().api_url.rstrip('/')}/api/v1/conflicts/{conflict_event_id}/override",
