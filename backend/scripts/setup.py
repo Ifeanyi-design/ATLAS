@@ -27,7 +27,7 @@ REQUIRED_MODULES = [
     "mcp",
     "openai",
     "pgvector",
-    "psycopg",
+    "psycopg2",
     "pydantic_settings",
     "pytest",
     "sqlalchemy",
