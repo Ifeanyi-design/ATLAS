@@ -33,20 +33,13 @@ REQUIRED_MODULES = [
     "sqlalchemy",
     "uvicorn",
 ]
-WINDOWS_DOCKER_CANDIDATES = [
-    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "bin" / "docker.exe",
-    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "docker.exe",
-]
-CODEX_SANDBOX_GROUP = "CodexSandboxUsers"
-
-
 def validate_runtime() -> None:
     if sys.version_info < (3, 11):
         raise SystemExit("Atlas requires Python 3.11 or newer. Python 3.13 is recommended.")
     if sys.prefix == sys.base_prefix:
         raise SystemExit(
             "Create and use a project virtual environment before setup, for example: "
-            ".venv\\Scripts\\python.exe backend\\scripts\\setup.py"
+            ".venv/bin/python backend/scripts/setup.py"
         )
 
 
@@ -59,30 +52,9 @@ def dependencies_are_available() -> bool:
 
 
 def ensure_codex_work_permissions() -> None:
-    """Let Codex-started Atlas write logs and local SQLite state on Windows."""
+    """Create the legacy runtime directory for local logs and SQLite state."""
     work_path = PROJECT_ROOT / "work"
     work_path.mkdir(parents=True, exist_ok=True)
-    if os.name != "nt":
-        return
-    try:
-        result = subprocess.run(
-            ["icacls", str(work_path), "/grant", f"{CODEX_SANDBOX_GROUP}:(OI)(CI)M"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as exc:
-        print(f"Warning: Atlas could not update work folder permissions automatically: {exc}")
-        return
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        print(
-            "Warning: Atlas could not grant Codex sandbox write access to "
-            f"{work_path}. If Atlas tools cannot write logs or SQLite data, run: "
-            f'icacls "{work_path}" /grant "{CODEX_SANDBOX_GROUP}:(OI)(CI)M"'
-        )
-        if detail:
-            print(f"Permission detail: {detail}")
 
 
 def install_dependencies() -> None:
@@ -111,13 +83,7 @@ def find_docker_command() -> str | None:
     configured = os.environ.get("ATLAS_DOCKER_COMMAND")
     if configured:
         return configured
-    discovered = shutil.which("docker")
-    if discovered:
-        return discovered
-    for candidate in WINDOWS_DOCKER_CANDIDATES:
-        if candidate.exists():
-            return str(candidate)
-    return None
+    return shutil.which("docker")
 
 
 def docker_is_ready(docker_command: str | None = None) -> bool:
@@ -142,7 +108,7 @@ def choose_storage() -> tuple[str, str, bool, bool, bool]:
         if docker_ready:
             docker_status = "Docker is installed and reachable."
         else:
-            docker_status = "Docker is installed, but Docker Desktop or the daemon is not reachable yet."
+            docker_status = "Docker is installed, but its daemon is not reachable yet."
         print(
             f"{docker_status}\n"
             "Atlas storage options:\n"
@@ -272,7 +238,7 @@ def migrate_postgres(start_local_container: bool) -> None:
     if start_local_container:
         docker_command = find_docker_command()
         if docker_command is None:
-            raise SystemExit("Docker is not installed or not discoverable. Start Docker Desktop or set ATLAS_DOCKER_COMMAND.")
+            raise SystemExit("Docker is not installed or not discoverable. Start its daemon or set ATLAS_DOCKER_COMMAND.")
         subprocess.run([docker_command, "compose", "up", "-d", "db"], cwd=PROJECT_ROOT, check=True)
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=PROJECT_ROOT / "backend", check=True)
 

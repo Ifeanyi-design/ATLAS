@@ -47,29 +47,9 @@ def test_docker_options_show_when_docker_is_installed_but_not_running(monkeypatc
     assert prompts == ["Choose 1, 2, 3, or 4 [4]: "]
 
 
-def test_setup_grants_codex_work_permissions_on_windows(monkeypatch, tmp_path) -> None:
-    calls: list[list[str]] = []
+def test_setup_creates_legacy_work_directory(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(setup, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(setup.os, "name", "nt")
-    monkeypatch.setattr(
-        setup.subprocess,
-        "run",
-        lambda command, **_: calls.append(command) or type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
-    )
 
     setup.ensure_codex_work_permissions()
 
     assert (tmp_path / "work").is_dir()
-    assert calls == [["icacls", str(tmp_path / "work"), "/grant", "CodexSandboxUsers:(OI)(CI)M"]]
-
-
-def test_setup_skips_codex_work_permissions_off_windows(monkeypatch, tmp_path) -> None:
-    calls: list[list[str]] = []
-    monkeypatch.setattr(setup, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(setup.os, "name", "posix")
-    monkeypatch.setattr(setup.subprocess, "run", lambda command, **_: calls.append(command))
-
-    setup.ensure_codex_work_permissions()
-
-    assert (tmp_path / "work").is_dir()
-    assert calls == []

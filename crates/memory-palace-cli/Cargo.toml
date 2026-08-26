@@ -1,0 +1,17 @@
+[package]
+name = "memory-palace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "memory-palace"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+memory-palace-daemon = { path = "../memory-palace-daemon" }
+memory-palace-sqlite = { path = "../memory-palace-sqlite" }
+serde_json.workspace = true
