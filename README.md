@@ -22,8 +22,10 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 
 The installer:
 
-1. downloads the selected source revision from GitHub;
-2. builds the locked Cargo workspace in release mode;
+1. downloads and SHA-256 verifies the latest static Linux release when one is
+   available for the host;
+2. otherwise downloads the selected source revision and builds the locked
+   Cargo workspace in release mode;
 3. installs the profile-owned binary under
    `$HERMES_HOME/memory-palace/bin/`;
 4. installs a CLI copy under `${MEMORY_PALACE_BIN_DIR:-$HOME/.local/bin}`;
@@ -33,9 +35,9 @@ The installer:
 7. runs `memory-palace doctor` against the profile database.
 
 It does not use `sudo`, modify system directories, install Docker, or ask for
-credentials. A Rust toolchain and native C compiler are currently required while
-the bootstrap builds from source. Prebuilt, checksummed release archives can
-replace that build step later without changing the Hermes integration.
+credentials. Release installs on x86-64 Linux do not require Rust or a C
+compiler. Other architectures, development refs, unavailable assets, or
+`MEMORY_PALACE_PREFER_SOURCE=1` use the transparent locked source-build fallback.
 
 To install a specific revision:
 

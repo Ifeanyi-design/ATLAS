@@ -48,3 +48,8 @@ Hermes v0.20.3 classifies provider directories as exclusive plugins, while
 context engines are loaded through the general plugin manager. Memory Palace
 therefore ships `memory-palace` and `memory-palace-context` directories. They
 share one socket protocol and do not modify Hermes core.
+
+Tagged releases package a static x86-64 Linux musl binary with both adapters and
+a SHA-256 sidecar. The bootstrap verifies the archive before extraction and
+falls back to a locked local Cargo build when no matching verified artifact is
+available.

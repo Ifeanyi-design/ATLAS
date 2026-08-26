@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Test workspace
+        run: cargo test --locked --workspace
+
+      - name: Build static Linux binary
+        run: cargo build --locked --release --target x86_64-unknown-linux-musl
+
+      - name: Package release
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset=memory-palace-x86_64-unknown-linux-musl.tar.gz
+          install -d dist package/bin \
+            package/adapters/hermes/memory_palace \
+            package/adapters/hermes/memory_palace_context
+          install -m 0755 target/x86_64-unknown-linux-musl/release/memory-palace package/bin/memory-palace
+          install -m 0644 adapters/hermes/memory_palace/*.py adapters/hermes/memory_palace/plugin.yaml \
+            package/adapters/hermes/memory_palace/
+          install -m 0644 adapters/hermes/memory_palace_context/*.py adapters/hermes/memory_palace_context/plugin.yaml \
+            package/adapters/hermes/memory_palace_context/
+          install -m 0644 README.md LICENSE package/
+          tar -C package -czf "dist/$asset" .
+          (cd dist && sha256sum "$asset" > "$asset.sha256")
+
+      - name: Create GitHub release and upload checksummed assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
