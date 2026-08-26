@@ -83,6 +83,7 @@ $HERMES_HOME/memory-palace/log/daemon.log
 ## Current capabilities
 
 - project-scoped engineering decisions;
+- automatically maintained, bounded project-state summaries;
 - rationale, affected-file, tag, importance, and session metadata;
 - project-scoped decision reads, edits, selected deletion, and confirmed
   whole-project deletion;

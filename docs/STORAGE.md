@@ -19,4 +19,6 @@ Completed turns and tool events use the same zstd archival path. Recovery always
 requires the owning project ID and verifies the decompressed bytes against the
 stored SHA-256 digest before returning evidence. Decision edits replace their FTS
 document in the same transaction, while decision deletion removes its FTS row so
-deleted or stale text cannot be retrieved.
+deleted or stale text cannot be retrieved. The same decision transaction rebuilds
+a bounded project summary ordered by importance and recency, so context capsules
+never depend on an out-of-sync derived cache.

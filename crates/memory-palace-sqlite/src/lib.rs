@@ -236,6 +236,7 @@ impl Storage {
                 tags.join(" "),
             ],
         )?;
+        refresh_project_summary(&transaction, &new.project_id)?;
         transaction.commit()?;
         drop(connection);
         self.get_decision(&new.project_id, &id)?
@@ -432,6 +433,7 @@ impl Storage {
             &files,
             &tags,
         )?;
+        refresh_project_summary(&transaction, project_id)?;
         transaction.commit()?;
         drop(connection);
         self.get_decision(project_id, decision_id)?
@@ -453,6 +455,7 @@ impl Storage {
             "DELETE FROM decisions WHERE id = ?1 AND project_id = ?2",
             params![decision_id.to_string(), project_id.to_string()],
         )?;
+        refresh_project_summary(&transaction, project_id)?;
         transaction.commit()?;
         Ok(removed == 1)
     }
@@ -882,6 +885,40 @@ fn replace_decision_fts(
             files.join(" "),
             tags.join(" ")
         ],
+    )?;
+    Ok(())
+}
+
+fn refresh_project_summary(
+    transaction: &Transaction<'_>,
+    project_id: &ProjectId,
+) -> Result<(), rusqlite::Error> {
+    const MAX_SUMMARY_CHARS: usize = 2_000;
+    let mut statement = transaction.prepare(
+        "SELECT decision FROM decisions
+         WHERE project_id = ?1 AND status = 'active'
+         ORDER BY importance DESC, updated_at DESC, id ASC LIMIT 12",
+    )?;
+    let decisions = statement
+        .query_map([project_id.to_string()], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    let mut summary = String::new();
+    for decision in decisions {
+        let line = format!("- {}", decision.trim());
+        let separator = usize::from(!summary.is_empty());
+        if summary.chars().count() + separator + line.chars().count() > MAX_SUMMARY_CHARS {
+            break;
+        }
+        if !summary.is_empty() {
+            summary.push('\n');
+        }
+        summary.push_str(&line);
+    }
+    transaction.execute(
+        "UPDATE projects SET summary = ?1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+        params![summary, project_id.to_string()],
     )?;
     Ok(())
 }
@@ -1351,6 +1388,13 @@ mod tests {
                 "Use the obsolete cache elsewhere",
             ))
             .unwrap();
+        assert!(
+            storage
+                .resolve_project("edit-project")
+                .unwrap()
+                .summary
+                .contains("obsolete cache")
+        );
 
         let edited = storage
             .edit_decision(
@@ -1367,6 +1411,9 @@ mod tests {
             .unwrap();
         assert_eq!(edited.tags, vec!["cache"]);
         assert_eq!(edited.importance, 5);
+        let summary = storage.resolve_project("edit-project").unwrap().summary;
+        assert!(summary.contains("quartz cache"));
+        assert!(!summary.contains("obsolete cache"));
         assert!(
             storage
                 .search_decisions(&project.id, "obsolete", 10)
@@ -1385,6 +1432,13 @@ mod tests {
         assert!(storage.remove_decision(&project.id, &original.id).unwrap());
         assert!(
             storage
+                .resolve_project("edit-project")
+                .unwrap()
+                .summary
+                .is_empty()
+        );
+        assert!(
+            storage
                 .search_decisions(&project.id, "quartz", 10)
                 .unwrap()
                 .is_empty()
@@ -1394,6 +1448,13 @@ mod tests {
                 .get_decision(&other.id, &foreign.id)
                 .unwrap()
                 .is_some()
+        );
+        assert!(
+            storage
+                .resolve_project("other-edit-project")
+                .unwrap()
+                .summary
+                .contains("obsolete cache elsewhere")
         );
     }
 

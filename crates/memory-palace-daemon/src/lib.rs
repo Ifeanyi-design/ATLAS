@@ -1520,6 +1520,12 @@ mod tests {
                 .contains("Retry counters must be persisted")
         );
         assert!(
+            selected[1]["content"]
+                .as_str()
+                .unwrap()
+                .contains("Project state:")
+        );
+        assert!(
             !selected[1]["content"]
                 .as_str()
                 .unwrap()
