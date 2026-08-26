@@ -5,7 +5,7 @@ use memory_palace_protocol::{MAX_FRAME_BYTES, PROTOCOL_VERSION, Request, Respons
 use memory_palace_sqlite::{Storage, StorageError};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
@@ -203,8 +203,30 @@ const fn default_importance() -> i64 {
 
 fn log_decision(storage: &Storage, params: LogDecisionParams) -> Result<Value, ApiError> {
     let project = storage.resolve_project(&params.project)?;
+    let candidate_query = format!(
+        "{} {} {} {}",
+        params.decision,
+        params.reason,
+        params.affected_files.join(" "),
+        params.tags.join(" ")
+    );
+    let candidates = storage.search_decisions(&project.id, &candidate_query, 20)?;
+    let potential_conflicts = candidates
+        .into_iter()
+        .filter(|hit| {
+            decisions_potentially_conflict(
+                &params.decision,
+                &params.reason,
+                &params.affected_files,
+                &params.tags,
+                &hit.decision,
+            )
+        })
+        .map(|hit| hit.decision)
+        .collect::<Vec<_>>();
+    let new_intent = params.decision.clone();
     let decision = storage.log_decision(&NewDecision {
-        project_id: project.id,
+        project_id: project.id.clone(),
         session_id: params.session_id,
         decision: params.decision,
         reason: params.reason,
@@ -213,7 +235,121 @@ fn log_decision(storage: &Storage, params: LogDecisionParams) -> Result<Value, A
         importance: params.importance,
         source_turn_id: params.source_turn_id,
     })?;
-    Ok(serde_json::to_value(decision)?)
+    let mut conflicts = Vec::new();
+    for previous in potential_conflicts {
+        let shared = shared_conflict_terms(&new_intent, &previous.decision);
+        let explanation = if shared.is_empty() {
+            "The new decision changes architecture covered by the same structured metadata."
+                .to_owned()
+        } else {
+            format!(
+                "The new decision uses change or opposing language and overlaps the previous decision on: {}.",
+                shared.join(", ")
+            )
+        };
+        conflicts.push(storage.record_conflict(
+            &project.id,
+            Some(&previous.id),
+            &new_intent,
+            &explanation,
+        )?);
+    }
+    let mut value = serde_json::to_value(decision)?;
+    if let Some(object) = value.as_object_mut() {
+        object.insert("conflicts".to_owned(), serde_json::to_value(&conflicts)?);
+        if !conflicts.is_empty() {
+            object.insert(
+                "warning".to_owned(),
+                Value::String(format!(
+                    "Saved, with {} potential decision conflict(s); review or explicitly override them.",
+                    conflicts.len()
+                )),
+            );
+        }
+    }
+    Ok(value)
+}
+
+fn decisions_potentially_conflict(
+    new_decision: &str,
+    new_reason: &str,
+    new_files: &[String],
+    new_tags: &[String],
+    previous: &memory_palace_core::Decision,
+) -> bool {
+    if new_decision.trim().eq_ignore_ascii_case(&previous.decision) {
+        return false;
+    }
+    let new_text = format!("{new_decision} {new_reason}");
+    let previous_text = format!("{} {}", previous.decision, previous.reason);
+    let change_signal =
+        has_change_signal(&new_text) || (has_negation(&new_text) != has_negation(&previous_text));
+    if !change_signal {
+        return false;
+    }
+    let new_file_set = normalized_strings(new_files);
+    let previous_file_set = normalized_strings(&previous.affected_files);
+    let new_tag_set = normalized_strings(new_tags);
+    let previous_tag_set = normalized_strings(&previous.tags);
+    let structured_overlap = !new_file_set.is_disjoint(&previous_file_set)
+        || !new_tag_set.is_disjoint(&previous_tag_set);
+    structured_overlap || !shared_conflict_terms(&new_text, &previous_text).is_empty()
+}
+
+fn normalized_strings(values: &[String]) -> BTreeSet<String> {
+    values
+        .iter()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn shared_conflict_terms(left: &str, right: &str) -> Vec<String> {
+    let left = significant_terms(left);
+    let right = significant_terms(right);
+    left.intersection(&right).take(8).cloned().collect()
+}
+
+fn significant_terms(content: &str) -> BTreeSet<String> {
+    const STOPWORDS: &[&str] = &[
+        "about", "after", "again", "against", "also", "because", "before", "being", "change",
+        "decision", "disable", "from", "have", "instead", "into", "local", "must", "no", "not",
+        "project", "remove", "replace", "should", "switch", "that", "the", "their", "then", "this",
+        "use", "using", "with", "without",
+    ];
+    content
+        .split(|character: char| {
+            !character.is_alphanumeric() && character != '_' && character != '-'
+        })
+        .map(str::to_lowercase)
+        .filter(|term| term.chars().count() >= 3)
+        .filter(|term| !STOPWORDS.contains(&term.as_str()))
+        .collect()
+}
+
+fn has_change_signal(content: &str) -> bool {
+    let lower = content.to_lowercase();
+    [
+        "abandon ",
+        "disable ",
+        "do not ",
+        "migrate ",
+        "must not ",
+        "no longer ",
+        "remove ",
+        "replace ",
+        "switch ",
+        " instead",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn has_negation(content: &str) -> bool {
+    let lower = content.to_lowercase();
+    ["do not ", "must not ", "no longer ", "never ", "without "]
+        .iter()
+        .any(|marker| lower.contains(marker))
 }
 
 #[derive(Deserialize)]
@@ -991,6 +1127,91 @@ mod tests {
         );
         assert!(searched.ok, "{searched:?}");
         assert_eq!(searched.result.unwrap().as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn decision_changes_warn_and_record_auditable_conflicts_without_blocking() {
+        let storage = Storage::open_in_memory().unwrap();
+        let previous = dispatch(
+            &storage,
+            Request::new(
+                "1",
+                "memory.log_decision",
+                json!({
+                    "project": "palace",
+                    "decision": "Use SQLite as the local authoritative database",
+                    "reason": "It has zero network dependency",
+                    "affected_files": ["src/storage.rs"],
+                    "tags": ["database"]
+                }),
+            ),
+        );
+        let previous_id = previous.result.unwrap()["id"].as_str().unwrap().to_owned();
+
+        let changed = dispatch(
+            &storage,
+            Request::new(
+                "2",
+                "memory.log_decision",
+                json!({
+                    "project": "palace",
+                    "decision": "Replace the authoritative database with MongoDB",
+                    "reason": "The deployment requirements changed",
+                    "affected_files": ["src/storage.rs"],
+                    "tags": ["database"]
+                }),
+            ),
+        );
+        assert!(changed.ok, "{changed:?}");
+        let changed = changed.result.unwrap();
+        assert!(
+            changed["id"].is_string(),
+            "the new decision must still be saved"
+        );
+        assert_eq!(changed["conflicts"].as_array().unwrap().len(), 1);
+        assert_eq!(changed["conflicts"][0]["decision_id"], previous_id);
+        assert_eq!(changed["conflicts"][0]["status"], "open");
+        assert!(changed["warning"].as_str().unwrap().contains("potential"));
+
+        let unrelated = dispatch(
+            &storage,
+            Request::new(
+                "3",
+                "memory.log_decision",
+                json!({
+                    "project": "palace",
+                    "decision": "Document the database backup procedure",
+                    "reason": "Operators need a recovery runbook"
+                }),
+            ),
+        );
+        assert!(unrelated.ok, "{unrelated:?}");
+        assert!(
+            unrelated.result.unwrap()["conflicts"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        let isolated = dispatch(
+            &storage,
+            Request::new(
+                "4",
+                "memory.log_decision",
+                json!({
+                    "project": "other-project",
+                    "decision": "Replace the authoritative database with Redis",
+                    "reason": "Different system"
+                }),
+            ),
+        );
+        assert!(isolated.ok, "{isolated:?}");
+        assert!(
+            isolated.result.unwrap()["conflicts"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

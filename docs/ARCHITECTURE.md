@@ -23,6 +23,12 @@ The Cargo workspace isolates portable domain and protocol types from native Linu
 transport and SQLite code. This leaves room for a later D1/WASM storage adapter
 without introducing cloud dependencies into the local binary.
 
+Decision logging performs deterministic conflict screening in Rust. Change or
+opposition language is matched against project-scoped active decisions using
+FTS candidates, lexical overlap, affected files, and tags. Matches are saved as
+open warnings alongside the new decision; they never block the write, and an
+explicit override remains auditable.
+
 ## Protocol framing
 
 Protocol v1 uses one UTF-8 JSON object per line. Requests and responses carry a

@@ -84,7 +84,8 @@ $HERMES_HOME/memory-palace/log/daemon.log
 - rationale, affected-file, tag, importance, and session metadata;
 - project-scoped decision reads, edits, selected deletion, and confirmed
   whole-project deletion;
-- auditable conflict records and explicit overrides;
+- deterministic lexical/metadata conflict warnings, auditable records, and
+  explicit overrides that never block a deliberate change;
 - deterministic SQLite FTS5 retrieval;
 - bundled SQLite with WAL, foreign keys, busy timeout, and capability checks;
 - UUIDv7 identifiers;
