@@ -75,12 +75,18 @@ $HERMES_HOME/memory-palace/log/daemon.log
 
 - project-scoped engineering decisions;
 - rationale, affected-file, tag, importance, and session metadata;
+- project-scoped decision reads, edits, selected deletion, and confirmed
+  whole-project deletion;
+- auditable conflict records and explicit overrides;
 - deterministic SQLite FTS5 retrieval;
 - bundled SQLite with WAL, foreign keys, busy timeout, and capability checks;
 - UUIDv7 identifiers;
 - versioned JSON requests over a permission-restricted Unix domain socket;
 - SHA-256-addressed, zstd-compressed, idempotent checkpoints;
-- Hermes tools for decision logging and search;
+- recoverable zstd archives for completed turns and large tool results;
+- non-blocking completed-turn ingestion from Hermes;
+- Hermes tools for decision logging, search, editing, deletion, conflict
+  overrides, and archived evidence recovery;
 - Hermes pre-compression checkpoint API v2;
 - no mandatory network or model call during normal operation.
 

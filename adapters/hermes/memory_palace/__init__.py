@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from agent.memory_provider import MemoryProvider
 
 from .client import MemoryPalaceClient
+
+logger = logging.getLogger(__name__)
 
 
 def _binary_path(hermes_home: Path | None = None) -> Path | None:
@@ -56,6 +60,9 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
         self._palace_home: Path | None = None
         self._session_id = ""
         self._project = "default"
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="memory-palace-sync"
+        )
 
     @property
     def name(self) -> str:
@@ -157,6 +164,68 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
                     "required": ["query"],
                 },
             },
+            {
+                "name": "memory_palace_get",
+                "description": "Get one saved decision by ID.",
+                "parameters": _id_parameters("decision_id"),
+            },
+            {
+                "name": "memory_palace_edit_decision",
+                "description": "Correct an existing project decision by ID.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "decision_id": {"type": "string"},
+                        "decision": {"type": "string"},
+                        "reason": {"type": "string"},
+                        "affected_files": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "importance": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 5,
+                        },
+                    },
+                    "required": ["decision_id"],
+                },
+            },
+            {
+                "name": "memory_palace_remove",
+                "description": "Remove one decision, or all project memory with exact confirmation.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "decision_id": {"type": "string"},
+                        "delete_all": {"type": "boolean", "default": False},
+                        "confirmation": {"type": "string"},
+                    },
+                },
+            },
+            {
+                "name": "memory_palace_override_conflict",
+                "description": "Record the reason for deliberately overriding a conflict warning.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "conflict_id": {"type": "string"},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["conflict_id", "reason"],
+                },
+            },
+            {
+                "name": "memory_palace_get_archived_turn",
+                "description": "Recover one archived turn and its raw evidence.",
+                "parameters": _id_parameters("turn_id"),
+            },
+            {
+                "name": "memory_palace_get_tool_event",
+                "description": "Recover one archived tool result and its raw evidence.",
+                "parameters": _id_parameters("event_id"),
+            },
         ]
 
     def handle_tool_call(
@@ -173,9 +242,54 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
             result = self._call(
                 "memory.search", {**args, "project": self._project}
             )
+        elif tool_name == "memory_palace_get":
+            result = self._call("memory.get", {**args, "project": self._project})
+        elif tool_name == "memory_palace_edit_decision":
+            result = self._call(
+                "memory.edit_decision", {**args, "project": self._project}
+            )
+        elif tool_name == "memory_palace_remove":
+            result = self._call("memory.remove", {**args, "project": self._project})
+        elif tool_name == "memory_palace_override_conflict":
+            result = self._call(
+                "conflict.override", {**args, "project": self._project}
+            )
+        elif tool_name == "memory_palace_get_archived_turn":
+            result = self._call("turn.get", {**args, "project": self._project})
+        elif tool_name == "memory_palace_get_tool_event":
+            result = self._call(
+                "tool_event.get", {**args, "project": self._project}
+            )
         else:
             return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})
         return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+    def sync_turn(
+        self,
+        user_content: str,
+        assistant_content: str,
+        *,
+        session_id: str = "",
+        messages: list[dict[str, Any]] | None = None,
+    ) -> None:
+        turn_messages = _current_turn_messages(messages, user_content, assistant_content)
+        payload = {
+            "project": self._project,
+            "session_id": session_id or self._session_id,
+            "user_text": user_content,
+            "assistant_text": assistant_content,
+            "summary": "",
+            "content": json.dumps(
+                turn_messages, ensure_ascii=False, separators=(",", ":")
+            ),
+        }
+        self._executor.submit(self._archive_turn, payload)
+
+    def _archive_turn(self, payload: dict[str, Any]) -> None:
+        try:
+            self._call("turn.archive", payload)
+        except RuntimeError as error:
+            logger.warning("Memory Palace turn archival failed: %s", error)
 
     def on_session_switch(
         self,
@@ -204,6 +318,36 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
         if self._client is None:
             raise RuntimeError("Memory Palace provider is not initialized")
         return self._client.call(method, params)
+
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=False)
+
+
+def _id_parameters(field: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {field: {"type": "string"}},
+        "required": [field],
+    }
+
+
+def _current_turn_messages(
+    messages: list[dict[str, Any]] | None,
+    user_content: str,
+    assistant_content: str,
+) -> list[dict[str, Any]]:
+    if not messages:
+        return [
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": assistant_content},
+        ]
+    start = 0
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.get("role") == "user" and message.get("content") == user_content:
+            start = index
+            break
+    return messages[start:]
 
 
 def register(ctx: Any) -> None:

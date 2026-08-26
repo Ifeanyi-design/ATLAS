@@ -1,4 +1,6 @@
-use memory_palace_core::NewDecision;
+use memory_palace_core::{
+    ConflictId, DecisionId, DecisionPatch, NewDecision, NewToolEvent, NewTurn, ToolEventId, TurnId,
+};
 use memory_palace_protocol::{MAX_FRAME_BYTES, PROTOCOL_VERSION, Request, Response, encode_frame};
 use memory_palace_sqlite::{Storage, StorageError};
 use serde::Deserialize;
@@ -9,6 +11,7 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::thread;
+use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DaemonError {
@@ -114,6 +117,25 @@ pub fn dispatch(storage: &Storage, request: Request) -> Response {
         "memory.search" => {
             parse::<SearchParams>(request.params).and_then(|params| search(storage, params))
         }
+        "memory.get" => parse::<GetDecisionParams>(request.params)
+            .and_then(|params| get_decision(storage, params)),
+        "memory.edit_decision" => parse::<EditDecisionParams>(request.params)
+            .and_then(|params| edit_decision(storage, params)),
+        "memory.remove" => parse::<RemoveMemoryParams>(request.params)
+            .and_then(|params| remove_memory(storage, params)),
+        "conflict.record" => parse::<RecordConflictParams>(request.params)
+            .and_then(|params| record_conflict(storage, params)),
+        "conflict.override" => parse::<OverrideConflictParams>(request.params)
+            .and_then(|params| override_conflict(storage, params)),
+        "turn.archive" => parse::<ArchiveTurnParams>(request.params)
+            .and_then(|params| archive_turn(storage, params)),
+        "turn.get" => {
+            parse::<GetTurnParams>(request.params).and_then(|params| get_turn(storage, params))
+        }
+        "tool_event.archive" => parse::<ArchiveToolEventParams>(request.params)
+            .and_then(|params| archive_tool_event(storage, params)),
+        "tool_event.get" => parse::<GetToolEventParams>(request.params)
+            .and_then(|params| get_tool_event(storage, params)),
         "checkpoint.archive" => {
             parse::<CheckpointParams>(request.params).and_then(|params| checkpoint(storage, params))
         }
@@ -205,6 +227,218 @@ fn search(storage: &Storage, params: SearchParams) -> Result<Value, ApiError> {
 }
 
 #[derive(Deserialize)]
+struct GetDecisionParams {
+    project: String,
+    decision_id: String,
+}
+
+fn get_decision(storage: &Storage, params: GetDecisionParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    let id = DecisionId(parse_uuid(&params.decision_id, "decision_id")?);
+    let decision = storage
+        .get_decision(&project.id, &id)?
+        .ok_or_else(|| ApiError::new("NOT_FOUND", "decision was not found"))?;
+    Ok(serde_json::to_value(decision)?)
+}
+
+#[derive(Deserialize)]
+struct EditDecisionParams {
+    project: String,
+    decision_id: String,
+    decision: Option<String>,
+    reason: Option<String>,
+    affected_files: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
+    importance: Option<i64>,
+}
+
+fn edit_decision(storage: &Storage, params: EditDecisionParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    let id = DecisionId(parse_uuid(&params.decision_id, "decision_id")?);
+    let decision = storage.edit_decision(
+        &project.id,
+        &id,
+        &DecisionPatch {
+            decision: params.decision,
+            reason: params.reason,
+            affected_files: params.affected_files,
+            tags: params.tags,
+            importance: params.importance,
+        },
+    )?;
+    Ok(serde_json::to_value(decision)?)
+}
+
+#[derive(Deserialize)]
+struct RemoveMemoryParams {
+    project: String,
+    decision_id: Option<String>,
+    #[serde(default)]
+    delete_all: bool,
+    confirmation: Option<String>,
+}
+
+fn remove_memory(storage: &Storage, params: RemoveMemoryParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    if params.delete_all {
+        let confirmation = params.confirmation.as_deref().unwrap_or_default();
+        storage.remove_all_project_memory(&project.id, confirmation)?;
+        return Ok(json!({ "status": "removed_all" }));
+    }
+    let id = params
+        .decision_id
+        .as_deref()
+        .ok_or_else(|| ApiError::new("INVALID_PARAMS", "decision_id is required"))?;
+    let id = DecisionId(parse_uuid(id, "decision_id")?);
+    let removed = storage.remove_decision(&project.id, &id)?;
+    if !removed {
+        return Err(ApiError::new("NOT_FOUND", "decision was not found"));
+    }
+    Ok(json!({ "status": "removed", "decision_id": id }))
+}
+
+#[derive(Deserialize)]
+struct RecordConflictParams {
+    project: String,
+    decision_id: Option<String>,
+    new_intent: String,
+    explanation: String,
+}
+
+fn record_conflict(storage: &Storage, params: RecordConflictParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    let decision_id = params
+        .decision_id
+        .as_deref()
+        .map(|value| parse_uuid(value, "decision_id").map(DecisionId))
+        .transpose()?;
+    Ok(serde_json::to_value(storage.record_conflict(
+        &project.id,
+        decision_id.as_ref(),
+        &params.new_intent,
+        &params.explanation,
+    )?)?)
+}
+
+#[derive(Deserialize)]
+struct OverrideConflictParams {
+    project: String,
+    conflict_id: String,
+    reason: String,
+}
+
+fn override_conflict(storage: &Storage, params: OverrideConflictParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    let conflict_id = ConflictId(parse_uuid(&params.conflict_id, "conflict_id")?);
+    Ok(serde_json::to_value(storage.override_conflict(
+        &project.id,
+        &conflict_id,
+        &params.reason,
+    )?)?)
+}
+
+#[derive(Deserialize)]
+struct ArchiveTurnParams {
+    project: String,
+    session_id: Option<String>,
+    user_text: String,
+    assistant_text: String,
+    #[serde(default)]
+    summary: String,
+    content: String,
+    #[serde(default)]
+    estimated_tokens: i64,
+}
+
+fn archive_turn(storage: &Storage, params: ArchiveTurnParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    Ok(serde_json::to_value(storage.archive_turn(&NewTurn {
+        project_id: project.id,
+        session_id: params.session_id,
+        user_text: params.user_text,
+        assistant_text: params.assistant_text,
+        summary: params.summary,
+        raw: params.content.into_bytes(),
+        estimated_tokens: params.estimated_tokens,
+    })?)?)
+}
+
+#[derive(Deserialize)]
+struct GetTurnParams {
+    project: String,
+    turn_id: String,
+}
+
+fn get_turn(storage: &Storage, params: GetTurnParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    let turn_id = TurnId(parse_uuid(&params.turn_id, "turn_id")?);
+    let record = storage
+        .get_turn(&project.id, &turn_id)?
+        .ok_or_else(|| ApiError::new("NOT_FOUND", "turn was not found"))?;
+    let raw = storage
+        .recover_turn(&project.id, &turn_id)?
+        .ok_or_else(|| ApiError::new("NOT_FOUND", "turn was not found"))?;
+    let content = String::from_utf8(raw)
+        .map_err(|_| ApiError::new("INVALID_ARCHIVE", "turn content is not UTF-8"))?;
+    Ok(json!({ "record": record, "content": content }))
+}
+
+#[derive(Deserialize)]
+struct ArchiveToolEventParams {
+    project: String,
+    turn_id: Option<String>,
+    tool_name: String,
+    invocation_summary: String,
+    result_summary: String,
+    content: String,
+    #[serde(default)]
+    estimated_tokens: i64,
+}
+
+fn archive_tool_event(
+    storage: &Storage,
+    params: ArchiveToolEventParams,
+) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    let turn_id = params
+        .turn_id
+        .as_deref()
+        .map(|value| parse_uuid(value, "turn_id").map(TurnId))
+        .transpose()?;
+    Ok(serde_json::to_value(storage.archive_tool_event(
+        &NewToolEvent {
+            project_id: project.id,
+            turn_id,
+            tool_name: params.tool_name,
+            invocation_summary: params.invocation_summary,
+            result_summary: params.result_summary,
+            raw: params.content.into_bytes(),
+            estimated_tokens: params.estimated_tokens,
+        },
+    )?)?)
+}
+
+#[derive(Deserialize)]
+struct GetToolEventParams {
+    project: String,
+    event_id: String,
+}
+
+fn get_tool_event(storage: &Storage, params: GetToolEventParams) -> Result<Value, ApiError> {
+    let project = storage.resolve_project(&params.project)?;
+    let event_id = ToolEventId(parse_uuid(&params.event_id, "event_id")?);
+    let record = storage
+        .get_tool_event(&project.id, &event_id)?
+        .ok_or_else(|| ApiError::new("NOT_FOUND", "tool event was not found"))?;
+    let raw = storage
+        .recover_tool_event(&project.id, &event_id)?
+        .ok_or_else(|| ApiError::new("NOT_FOUND", "tool event was not found"))?;
+    let content = String::from_utf8(raw)
+        .map_err(|_| ApiError::new("INVALID_ARCHIVE", "tool event content is not UTF-8"))?;
+    Ok(json!({ "record": record, "content": content }))
+}
+
+#[derive(Deserialize)]
 struct CheckpointParams {
     project: String,
     session_id: Option<String>,
@@ -224,6 +458,11 @@ fn checkpoint(storage: &Storage, params: CheckpointParams) -> Result<Value, ApiE
 fn parse<T: for<'de> Deserialize<'de>>(value: Value) -> Result<T, ApiError> {
     serde_json::from_value(value)
         .map_err(|error| ApiError::new("INVALID_PARAMS", error.to_string()))
+}
+
+fn parse_uuid(value: &str, field: &'static str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(value)
+        .map_err(|_| ApiError::new("INVALID_PARAMS", format!("{field} must be a UUID")))
 }
 
 struct ApiError {
@@ -299,5 +538,161 @@ mod tests {
         let response = dispatch(&storage, request);
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "INVALID_REQUEST");
+    }
+
+    #[test]
+    fn protocol_edits_removes_and_overrides_conflicts() {
+        let storage = Storage::open_in_memory().unwrap();
+        let logged = dispatch(
+            &storage,
+            Request::new(
+                "1",
+                "memory.log_decision",
+                json!({
+                    "project": "palace",
+                    "decision": "Use the old cache",
+                    "reason": "Initial experiment"
+                }),
+            ),
+        );
+        let decision_id = logged.result.unwrap()["id"].as_str().unwrap().to_owned();
+
+        let edited = dispatch(
+            &storage,
+            Request::new(
+                "2",
+                "memory.edit_decision",
+                json!({
+                    "project": "palace",
+                    "decision_id": decision_id,
+                    "decision": "Use the deterministic cache",
+                    "reason": "Stable invalidation is required",
+                    "tags": ["cache"]
+                }),
+            ),
+        );
+        assert!(edited.ok, "{edited:?}");
+
+        let conflict = dispatch(
+            &storage,
+            Request::new(
+                "3",
+                "conflict.record",
+                json!({
+                    "project": "palace",
+                    "decision_id": decision_id,
+                    "new_intent": "Remove the cache",
+                    "explanation": "The request reverses a saved decision"
+                }),
+            ),
+        );
+        let conflict_id = conflict.result.unwrap()["id"].as_str().unwrap().to_owned();
+        let overridden = dispatch(
+            &storage,
+            Request::new(
+                "4",
+                "conflict.override",
+                json!({
+                    "project": "palace",
+                    "conflict_id": conflict_id,
+                    "reason": "Requirements changed"
+                }),
+            ),
+        );
+        assert_eq!(
+            overridden.result.unwrap()["status"].as_str(),
+            Some("overridden")
+        );
+
+        let removed = dispatch(
+            &storage,
+            Request::new(
+                "5",
+                "memory.remove",
+                json!({"project": "palace", "decision_id": decision_id}),
+            ),
+        );
+        assert!(removed.ok, "{removed:?}");
+        let searched = dispatch(
+            &storage,
+            Request::new(
+                "6",
+                "memory.search",
+                json!({"project": "palace", "query": "deterministic cache"}),
+            ),
+        );
+        assert!(searched.result.unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn protocol_archives_and_recovers_turn_and_tool_evidence() {
+        let storage = Storage::open_in_memory().unwrap();
+        let archived_turn = dispatch(
+            &storage,
+            Request::new(
+                "1",
+                "turn.archive",
+                json!({
+                    "project": "palace",
+                    "session_id": "session-1",
+                    "user_text": "Run tests",
+                    "assistant_text": "Tests passed",
+                    "summary": "Test run",
+                    "content": "{\"raw\":\"turn — 測試\"}",
+                    "estimated_tokens": 8
+                }),
+            ),
+        );
+        assert!(archived_turn.ok, "{archived_turn:?}");
+        let turn_id = archived_turn.result.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let recovered_turn = dispatch(
+            &storage,
+            Request::new(
+                "2",
+                "turn.get",
+                json!({"project": "palace", "turn_id": turn_id}),
+            ),
+        );
+        assert_eq!(
+            recovered_turn.result.unwrap()["content"].as_str(),
+            Some("{\"raw\":\"turn — 測試\"}")
+        );
+
+        let archived_tool = dispatch(
+            &storage,
+            Request::new(
+                "3",
+                "tool_event.archive",
+                json!({
+                    "project": "palace",
+                    "turn_id": turn_id,
+                    "tool_name": "shell",
+                    "invocation_summary": "cargo test",
+                    "result_summary": "passed",
+                    "content": "full compiler output",
+                    "estimated_tokens": 4
+                }),
+            ),
+        );
+        assert!(archived_tool.ok, "{archived_tool:?}");
+        let event_id = archived_tool.result.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let recovered_tool = dispatch(
+            &storage,
+            Request::new(
+                "4",
+                "tool_event.get",
+                json!({"project": "palace", "event_id": event_id}),
+            ),
+        );
+        assert_eq!(
+            recovered_tool.result.unwrap()["content"].as_str(),
+            Some("full compiler output")
+        );
     }
 }
