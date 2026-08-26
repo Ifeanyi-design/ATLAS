@@ -30,33 +30,7 @@ def _health_is_atlas(api_url: str) -> bool:
         return False
 
 
-def _windows_listener_pids(port: int) -> set[int]:
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    pids: set[int] = set()
-    for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 5 or parts[0].upper() != "TCP":
-            continue
-        local_address, state, pid_text = parts[1], parts[3], parts[4]
-        if state.upper() != "LISTENING":
-            continue
-        if local_address.rsplit(":", 1)[-1] != str(port):
-            continue
-        try:
-            pids.add(int(pid_text))
-        except ValueError:
-            continue
-    return pids
-
-
 def listener_pids(port: int) -> set[int]:
-    if os.name == "nt":
-        return _windows_listener_pids(port)
     result = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True, check=False)
     pids: set[int] = set()
     for line in result.stdout.splitlines():
@@ -84,13 +58,7 @@ def stop_api() -> int:
     stopped: list[int] = []
     for pid in sorted(pids):
         try:
-            if os.name == "nt":
-                result = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True, check=False)
-                if result.returncode != 0:
-                    print(f"Could not stop process {pid}: {(result.stderr or result.stdout).strip()}")
-                    return 1
-            else:
-                os.kill(pid, signal.SIGTERM)
+            os.kill(pid, signal.SIGTERM)
             stopped.append(pid)
         except PermissionError:
             print(f"Permission denied while stopping process {pid}.")

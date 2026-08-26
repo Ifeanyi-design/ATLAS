@@ -51,6 +51,8 @@ impl Paths {
     fn discover(override_home: Option<PathBuf>) -> Result<Self> {
         let home = if let Some(path) = override_home {
             path
+        } else if let Some(path) = env::var_os("MEMORY_PALACE_HOME") {
+            PathBuf::from(path)
         } else if let Some(path) = env::var_os("HERMES_HOME") {
             PathBuf::from(path).join("memory-palace")
         } else if let Some(path) = env::var_os("XDG_DATA_HOME") {

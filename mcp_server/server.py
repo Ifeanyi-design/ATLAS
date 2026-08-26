@@ -23,10 +23,6 @@ from app.core.config import get_settings
 
 mcp = FastMCP("Atlas")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-WINDOWS_DOCKER_CANDIDATES = [
-    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "bin" / "docker.exe",
-    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Docker" / "Docker" / "resources" / "docker.exe",
-]
 _started_api: subprocess.Popen[bytes] | None = None
 _default_project_id: str | None = None
 _default_session_id = str(uuid.uuid4())
@@ -59,13 +55,7 @@ def _find_docker_command() -> str | None:
     configured = os.environ.get("ATLAS_DOCKER_COMMAND")
     if configured:
         return configured
-    discovered = shutil.which("docker")
-    if discovered:
-        return discovered
-    for candidate in WINDOWS_DOCKER_CANDIDATES:
-        if candidate.exists():
-            return str(candidate)
-    return None
+    return shutil.which("docker")
 
 
 def ensure_managed_local_postgres() -> None:

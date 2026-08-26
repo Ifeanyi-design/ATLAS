@@ -4,6 +4,7 @@ use memory_palace_core::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
@@ -49,10 +50,13 @@ pub struct StorageStatus {
 
 impl Storage {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
-        if let Some(parent) = path.as_ref().parent() {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        Self::from_connection(Connection::open(path)?)
+        let connection = Connection::open(path)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        Self::from_connection(connection)
     }
 
     pub fn open_in_memory() -> Result<Self, StorageError> {
@@ -452,6 +456,7 @@ fn load_decision(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     fn decision(project_id: ProjectId, text: &str) -> NewDecision {
         NewDecision {
@@ -518,5 +523,15 @@ mod tests {
         assert!(report.foreign_keys);
         assert!(report.fts5);
         assert_eq!(report.migration_version, 1);
+    }
+
+    #[test]
+    fn file_database_is_private_to_the_current_user() {
+        let path = std::env::temp_dir().join(format!("memory-palace-{}.sqlite3", Uuid::now_v7()));
+        let storage = Storage::open(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        drop(storage);
+        std::fs::remove_file(path).unwrap();
     }
 }

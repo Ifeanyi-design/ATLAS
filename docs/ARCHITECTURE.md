@@ -1,6 +1,8 @@
 # Architecture
 
-Memory Palace is a Linux-only, local-first memory service for Hermes Agent.
+Memory Palace is a Unix-native, distro-agnostic local memory service for Hermes
+Agent. It depends on Unix domain sockets, not a particular package manager,
+service manager, or filesystem layout.
 
 ```text
 Hermes MemoryProvider adapter

@@ -5,12 +5,33 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 from agent.memory_provider import MemoryProvider
 
 from .client import MemoryPalaceClient
+
+
+def _binary_path(hermes_home: Path | None = None) -> Path | None:
+    configured = os.environ.get("MEMORY_PALACE_BINARY", "").strip()
+    if configured:
+        return Path(configured)
+    if hermes_home is None:
+        try:
+            from hermes_constants import get_hermes_home
+
+            hermes_home = Path(get_hermes_home())
+        except (ImportError, OSError):
+            hermes_home = None
+    if hermes_home is not None:
+        installed = hermes_home / "memory-palace" / "bin" / "memory-palace"
+        if installed.is_file():
+            return installed
+    discovered = shutil.which("memory-palace")
+    return Path(discovered) if discovered else None
 
 
 def _project_name(explicit: str | None = None) -> str:
@@ -31,6 +52,8 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
 
     def __init__(self) -> None:
         self._client: MemoryPalaceClient | None = None
+        self._binary: Path | None = None
+        self._palace_home: Path | None = None
         self._session_id = ""
         self._project = "default"
 
@@ -39,20 +62,55 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
         return "memory-palace"
 
     def is_available(self) -> bool:
-        return os.name == "posix" and shutil.which("memory-palace") is not None
+        return os.name == "posix" and _binary_path() is not None
 
     def unavailable_reason(self) -> str:
         return "Install the memory-palace Linux binary and ensure it is on PATH."
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         hermes_home = Path(kwargs["hermes_home"])
+        self._palace_home = hermes_home / "memory-palace"
+        self._binary = _binary_path(hermes_home)
+        if self._binary is None:
+            raise RuntimeError(self.unavailable_reason())
         self._session_id = session_id
         self._project = _project_name(kwargs.get("project"))
         self._client = MemoryPalaceClient(
-            hermes_home / "memory-palace" / "run" / "memory-palace.sock"
+            self._palace_home / "run" / "memory-palace.sock"
         )
-        self._call("health")
+        self._ensure_daemon()
         self._call("project.resolve", {"name": self._project})
+
+    def _ensure_daemon(self) -> None:
+        try:
+            self._call("health")
+            return
+        except RuntimeError:
+            pass
+        assert self._binary is not None
+        assert self._palace_home is not None
+        log_directory = self._palace_home / "log"
+        log_directory.mkdir(parents=True, exist_ok=True)
+        with (log_directory / "daemon.log").open("ab") as log_file:
+            subprocess.Popen(
+                [str(self._binary), "--home", str(self._palace_home), "serve"],
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                close_fds=True,
+            )
+        last_error: RuntimeError | None = None
+        for _ in range(30):
+            try:
+                self._call("health")
+                return
+            except RuntimeError as error:
+                last_error = error
+                time.sleep(0.1)
+        raise RuntimeError(
+            f"Memory Palace daemon did not start; see {log_directory / 'daemon.log'}"
+        ) from last_error
 
     def get_config_schema(self) -> list[dict[str, Any]]:
         return []

@@ -190,7 +190,7 @@ def check_docker(storage_mode: str | None, auto_start_docker: bool) -> None:
     command = find_docker_command()
     if command is None:
         if storage_mode == "postgres" and auto_start_docker:
-            fail("Docker is needed for managed local PostgreSQL but was not found. Set ATLAS_DOCKER_COMMAND or install Docker Desktop.")
+            fail("Docker is needed for managed local PostgreSQL but was not found. Set ATLAS_DOCKER_COMMAND or install Docker.")
         else:
             warn("Docker was not found. This is fine for SQLite or cloud PostgreSQL.")
         return
@@ -198,7 +198,7 @@ def check_docker(storage_mode: str | None, auto_start_docker: bool) -> None:
     if docker_is_ready(command):
         pass_("Docker daemon is reachable.")
     elif storage_mode == "postgres" and auto_start_docker:
-        fail("Docker is installed but the daemon is not reachable. Start Docker Desktop, then rerun doctor.")
+        fail("Docker is installed but the daemon is not reachable. Start it, then rerun doctor.")
     else:
         warn("Docker is installed but the daemon is not reachable.")
 
