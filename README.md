@@ -1,4 +1,30 @@
-# Atlas
+# Hermes Memory Palace
+
+> **Rust-native persistent engineering memory and virtual context infrastructure for Hermes Agent.**
+
+Hermes Memory Palace is a Linux-first rewrite derived from ATLAS's engineering-
+decision memory concept. The new implementation is being built beside the legacy
+ATLAS code until its important behavior is reproduced in Rust tests. It uses a
+single native binary, a versioned Unix-socket protocol, bundled SQLite with FTS5,
+and a thin standard-library Python adapter for Hermes.
+
+The first native checkpoint is available now:
+
+```bash
+cargo test --workspace
+cargo build --release
+./target/release/memory-palace doctor
+./target/release/memory-palace serve
+./target/release/memory-palace search "sqlite" --project my-project
+```
+
+See [Architecture](docs/ARCHITECTURE.md) and [Storage](docs/STORAGE.md) for the
+new design. The ATLAS documentation and Python implementation below remain as a
+behavioral and migration reference during the staged rewrite.
+
+---
+
+# Legacy ATLAS
 
 > **Atlas prevents AI coding agents from silently reversing your project's engineering decisions across sessions.**
 

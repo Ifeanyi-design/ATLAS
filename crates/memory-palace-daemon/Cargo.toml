@@ -1,0 +1,14 @@
+[package]
+name = "memory-palace-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+memory-palace-core = { path = "../memory-palace-core" }
+memory-palace-protocol = { path = "../memory-palace-protocol" }
+memory-palace-sqlite = { path = "../memory-palace-sqlite" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

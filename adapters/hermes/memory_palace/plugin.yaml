@@ -1,0 +1,5 @@
+name: memory-palace
+version: 0.1.0
+description: Local-first engineering memory backed by a Rust daemon and SQLite.
+hooks:
+  - on_pre_compress
