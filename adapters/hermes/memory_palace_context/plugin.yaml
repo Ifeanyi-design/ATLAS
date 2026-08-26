@@ -1,0 +1,3 @@
+name: memory-palace-context
+version: 0.1.0
+description: Deterministic virtual context selection backed by Memory Palace.

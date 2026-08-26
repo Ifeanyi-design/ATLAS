@@ -51,6 +51,38 @@ def _project_name(explicit: str | None = None) -> str:
     return current.name or "default"
 
 
+def _ensure_daemon(
+    client: MemoryPalaceClient, binary: Path, palace_home: Path
+) -> None:
+    try:
+        client.call("health")
+        return
+    except RuntimeError:
+        pass
+    log_directory = palace_home / "log"
+    log_directory.mkdir(parents=True, exist_ok=True)
+    with (log_directory / "daemon.log").open("ab") as log_file:
+        subprocess.Popen(
+            [str(binary), "--home", str(palace_home), "serve"],
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+        )
+    last_error: RuntimeError | None = None
+    for _ in range(30):
+        try:
+            client.call("health")
+            return
+        except RuntimeError as error:
+            last_error = error
+            time.sleep(0.1)
+    raise RuntimeError(
+        f"Memory Palace daemon did not start; see {log_directory / 'daemon.log'}"
+    ) from last_error
+
+
 class MemoryPalaceMemoryProvider(MemoryProvider):
     pre_compress_checkpoint_api_version = 2
 
@@ -89,35 +121,10 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
         self._call("project.resolve", {"name": self._project})
 
     def _ensure_daemon(self) -> None:
-        try:
-            self._call("health")
-            return
-        except RuntimeError:
-            pass
         assert self._binary is not None
         assert self._palace_home is not None
-        log_directory = self._palace_home / "log"
-        log_directory.mkdir(parents=True, exist_ok=True)
-        with (log_directory / "daemon.log").open("ab") as log_file:
-            subprocess.Popen(
-                [str(self._binary), "--home", str(self._palace_home), "serve"],
-                stdin=subprocess.DEVNULL,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                close_fds=True,
-            )
-        last_error: RuntimeError | None = None
-        for _ in range(30):
-            try:
-                self._call("health")
-                return
-            except RuntimeError as error:
-                last_error = error
-                time.sleep(0.1)
-        raise RuntimeError(
-            f"Memory Palace daemon did not start; see {log_directory / 'daemon.log'}"
-        ) from last_error
+        assert self._client is not None
+        _ensure_daemon(self._client, self._binary, self._palace_home)
 
     def get_config_schema(self) -> list[dict[str, Any]]:
         return []
@@ -279,17 +286,26 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
             "user_text": user_content,
             "assistant_text": assistant_content,
             "summary": "",
-            "content": json.dumps(
-                turn_messages, ensure_ascii=False, separators=(",", ":")
-            ),
+            "messages": turn_messages,
         }
         self._executor.submit(self._archive_turn, payload)
 
     def _archive_turn(self, payload: dict[str, Any]) -> None:
         try:
-            self._call("turn.archive", payload)
+            self._call("turn.ingest", payload)
         except RuntimeError as error:
             logger.warning("Memory Palace turn archival failed: %s", error)
+
+    def prefetch(self, query: str, *, session_id: str = "") -> str:
+        try:
+            result = self._call(
+                "memory.capsule",
+                {"project": self._project, "query": query, "max_chars": 8_000},
+            )
+            return str(result.get("content", ""))
+        except RuntimeError as error:
+            logger.warning("Memory Palace prefetch failed open: %s", error)
+            return ""
 
     def on_session_switch(
         self,
@@ -313,6 +329,11 @@ class MemoryPalaceMemoryProvider(MemoryProvider):
             },
         )
         return str(result["checkpoint_id"])
+
+    def backup_paths(self) -> list[str]:
+        if self._palace_home is None:
+            return []
+        return [str(self._palace_home / "memory-palace.sqlite3")]
 
     def _call(self, method: str, params: dict[str, Any] | None = None) -> Any:
         if self._client is None:

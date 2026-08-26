@@ -5,6 +5,7 @@ umask 077
 repository=${MEMORY_PALACE_REPOSITORY:-drbree82/hermes-memory-palace}
 ref=${MEMORY_PALACE_REF:-main}
 source_dir=${MEMORY_PALACE_SOURCE_DIR:-}
+configure_hermes=${MEMORY_PALACE_CONFIGURE_HERMES:-1}
 
 fail() {
     printf 'memory-palace install: %s\n' "$*" >&2
@@ -53,6 +54,8 @@ fi
 [ -f "$source_dir/Cargo.lock" ] || fail "Cargo.lock not found in $source_dir"
 [ -d "$source_dir/adapters/hermes/memory_palace" ] || \
     fail "Hermes adapter not found in $source_dir"
+[ -d "$source_dir/adapters/hermes/memory_palace_context" ] || \
+    fail "Hermes context adapter not found in $source_dir"
 
 printf 'Building the native binary...\n'
 cargo build --locked --release --manifest-path "$source_dir/Cargo.toml"
@@ -61,7 +64,9 @@ if [ ! -d "$hermes_home" ]; then
     install -d -m 0700 "$hermes_home"
 fi
 install -d -m 0700 "$palace_home" "$palace_home/bin" "$palace_home/run" "$palace_home/log"
-install -d -m 0755 "$command_dir" "$hermes_home/plugins/memory-palace"
+install -d -m 0755 "$command_dir" \
+    "$hermes_home/plugins/memory-palace" \
+    "$hermes_home/plugins/memory-palace-context"
 install -m 0755 "$source_dir/target/release/memory-palace" \
     "$palace_home/bin/memory-palace"
 install -m 0755 "$source_dir/target/release/memory-palace" \
@@ -72,9 +77,29 @@ install -m 0644 "$source_dir/adapters/hermes/memory_palace/client.py" \
     "$hermes_home/plugins/memory-palace/client.py"
 install -m 0644 "$source_dir/adapters/hermes/memory_palace/plugin.yaml" \
     "$hermes_home/plugins/memory-palace/plugin.yaml"
+install -m 0644 "$source_dir/adapters/hermes/memory_palace_context/__init__.py" \
+    "$hermes_home/plugins/memory-palace-context/__init__.py"
+install -m 0644 "$source_dir/adapters/hermes/memory_palace_context/client.py" \
+    "$hermes_home/plugins/memory-palace-context/client.py"
+install -m 0644 "$source_dir/adapters/hermes/memory_palace_context/plugin.yaml" \
+    "$hermes_home/plugins/memory-palace-context/plugin.yaml"
 
 "$palace_home/bin/memory-palace" --home "$palace_home" doctor
 
+if [ "$configure_hermes" != "0" ] && command -v hermes >/dev/null 2>&1; then
+    printf 'Enabling Memory Palace in Hermes...\n'
+    HERMES_HOME="$hermes_home" hermes plugins enable \
+        --no-allow-tool-override memory-palace
+    HERMES_HOME="$hermes_home" hermes plugins enable \
+        --no-allow-tool-override memory-palace-context
+    HERMES_HOME="$hermes_home" hermes config set memory.provider memory-palace
+    HERMES_HOME="$hermes_home" hermes config set context.engine memory-palace
+fi
+
 printf '\nMemory Palace installed for Hermes profile: %s\n' "$hermes_home"
 printf 'CLI installed at: %s/memory-palace\n' "$command_dir"
-printf '%s\n' 'Select memory-palace as memory.provider and enable compression.checkpoint_required in Hermes configuration.'
+if [ "$configure_hermes" = "0" ] || ! command -v hermes >/dev/null 2>&1; then
+    printf '%s\n' 'Set memory.provider and context.engine to memory-palace in the Hermes configuration.'
+else
+    printf '%s\n' 'Hermes memory provider and context engine are enabled; the engine enforces durable compression checkpoints.'
+fi

@@ -1,12 +1,19 @@
-# Hermes integration spike
+# Hermes adapters
 
-The current Hermes runtime discovers memory providers and context engines through
-separate single-select plugin loaders. The first integration checkpoint therefore
-implements only the memory provider in `memory_palace/`. A future context-engine
-plugin will be installed separately and reuse the same versioned Unix-socket
-protocol rather than patching Hermes core.
+Hermes v0.20.3 discovers memory providers and context engines through separate
+activation paths. It also classifies a directory containing a memory provider as
+an exclusive plugin, so one combined directory cannot reliably expose both
+interfaces. Memory Palace therefore ships:
 
-For development, copy or symlink `memory_palace/` to the active profile's plugin
-directory and select `memory-palace` as `memory.provider`. The adapter expects the
-daemon at `$HERMES_HOME/memory-palace/run/memory-palace.sock` and contains no
-storage, ranking, or conflict business logic.
+- `memory_palace/` for the selected `MemoryProvider`;
+- `memory_palace_context/` for the selected `ContextEngine`.
+
+Both are standard-library Python lifecycle adapters over the same versioned Unix
+socket. Storage, extraction, search, budgeting, archival, and context selection
+remain in Rust.
+
+For development, install both directories as `memory-palace` and
+`memory-palace-context` under the active profile's plugin directory, enable both,
+then select `memory-palace` as `memory.provider` and `context.engine`. The
+adapters expect the daemon at
+`$HERMES_HOME/memory-palace/run/memory-palace.sock`.

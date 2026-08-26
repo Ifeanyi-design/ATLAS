@@ -10,7 +10,10 @@ text, rationale, paths, and tags. Every query includes an exact project filter.
 
 Checkpoint evidence is SHA-256 addressed and zstd compressed before insertion.
 Checkpoint rows carry project and session scope even when two projects archive
-identical bytes.
+identical bytes. The checkpoint transaction temporarily raises SQLite to
+`synchronous=FULL` and restores `NORMAL` after commit; this gives the destructive
+compression boundary stronger durability without imposing that latency on
+ordinary memory writes.
 
 Completed turns and tool events use the same zstd archival path. Recovery always
 requires the owning project ID and verifies the decompressed bytes against the

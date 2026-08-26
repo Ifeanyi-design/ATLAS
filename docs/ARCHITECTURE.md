@@ -5,7 +5,7 @@ Agent. It depends on Unix domain sockets, not a particular package manager,
 service manager, or filesystem layout.
 
 ```text
-Hermes MemoryProvider adapter
+Hermes MemoryProvider + ContextEngine adapters
         |
         | newline-delimited JSON protocol v1
         v
@@ -31,14 +31,14 @@ contains JSON values only and does not expose Rust types.
 
 ## Failure boundaries
 
-Ordinary retrieval is intended to fail open once context selection is added.
-Pre-compression checkpoint writes are content-addressed, zstd-compressed,
-idempotent within a project/session, and acknowledged only after the SQLite
-transaction commits.
+Ordinary prefetch, tool pruning, and request-time context selection fail open.
+Persistent compression fails closed: the context engine returns the original
+transcript unless a content-addressed, zstd-compressed checkpoint commits with
+SQLite `synchronous=FULL`. Ordinary writes retain WAL + `synchronous=NORMAL`.
 
 ## Hermes loaders
 
-As of the Phase 0 audit, current Hermes uses separate single-select discovery for
-memory providers and context engines. Memory Palace therefore ships separate
-Hermes-facing directories sharing one socket protocol. It does not modify Hermes
-core.
+Hermes v0.20.3 classifies provider directories as exclusive plugins, while
+context engines are loaded through the general plugin manager. Memory Palace
+therefore ships `memory-palace` and `memory-palace-context` directories. They
+share one socket protocol and do not modify Hermes core.

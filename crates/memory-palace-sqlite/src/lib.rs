@@ -54,6 +54,21 @@ pub struct StorageStatus {
     pub checkpoints: i64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct EvidenceHit {
+    pub id: String,
+    pub kind: String,
+    pub summary: String,
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenConflictSummary {
+    pub id: ConflictId,
+    pub new_intent: String,
+    pub explanation: String,
+}
+
 impl Storage {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref();
@@ -272,6 +287,70 @@ impl Storage {
             }
         }
         Ok(hits)
+    }
+
+    pub fn search_evidence(
+        &self,
+        project_id: &ProjectId,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<EvidenceHit>, StorageError> {
+        let fts_query = safe_fts_query(query);
+        if fts_query.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT evidence_id, kind, summary, -bm25(evidence_search) AS score
+             FROM evidence_search
+             WHERE evidence_search MATCH ?1 AND project_id = ?2
+             ORDER BY score DESC, evidence_id ASC
+             LIMIT ?3",
+        )?;
+        let rows = statement.query_map(
+            params![fts_query, project_id.to_string(), limit.min(100) as i64],
+            |row| {
+                Ok(EvidenceHit {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    summary: row.get(2)?,
+                    score: row.get(3)?,
+                })
+            },
+        )?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn open_conflicts(
+        &self,
+        project_id: &ProjectId,
+        limit: usize,
+    ) -> Result<Vec<OpenConflictSummary>, StorageError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT id, new_intent, explanation FROM conflicts
+             WHERE project_id = ?1 AND status = 'open'
+             ORDER BY created_at DESC, id ASC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![project_id.to_string(), limit.min(100) as i64],
+            |row| {
+                let id: String = row.get(0)?;
+                Ok((id, row.get(1)?, row.get(2)?))
+            },
+        )?;
+        rows.map(|row| {
+            let (id, new_intent, explanation): (String, String, String) = row?;
+            Ok(OpenConflictSummary {
+                id: ConflictId(Uuid::parse_str(&id)?),
+                new_intent,
+                explanation,
+            })
+        })
+        .collect()
     }
 
     pub fn edit_decision(
@@ -550,6 +629,30 @@ impl Storage {
         load_tool_event(&connection, project_id, event_id)
     }
 
+    pub fn find_tool_event_by_content(
+        &self,
+        project_id: &ProjectId,
+        content: &[u8],
+    ) -> Result<Option<ArchivedToolEvent>, StorageError> {
+        let digest = sha256(content);
+        let connection = self.lock()?;
+        let id: Option<String> = connection
+            .query_row(
+                "SELECT id FROM tool_events
+                 WHERE project_id = ?1 AND raw_sha256 = ?2
+                 ORDER BY created_at ASC, id ASC LIMIT 1",
+                params![project_id.to_string(), digest],
+                |row| row.get(0),
+            )
+            .optional()?;
+        id.map(|value| {
+            let id = ToolEventId(Uuid::parse_str(&value)?);
+            load_tool_event(&connection, project_id, &id)?
+                .ok_or(StorageError::NotFound("tool event"))
+        })
+        .transpose()
+    }
+
     pub fn recover_tool_event(
         &self,
         project_id: &ProjectId,
@@ -577,22 +680,32 @@ impl Storage {
         let id = format!("memory-palace:checkpoint:sha256:{digest}");
         let compressed = zstd::stream::encode_all(content, 3)?;
         let mut connection = self.lock()?;
-        let transaction = connection.transaction()?;
-        let session_id = ensure_session(&transaction, project_id, session_id)?;
-        transaction.execute(
-            "INSERT INTO checkpoints(row_id, id, project_id, session_id, content_sha256, raw_blob_zstd)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(project_id, session_id, content_sha256) DO NOTHING",
-            params![
-                Uuid::now_v7().to_string(),
-                id,
-                project_id.to_string(),
-                session_id,
-                digest,
-                compressed
-            ],
-        )?;
-        transaction.commit()?;
+        // Ordinary writes use WAL + NORMAL for latency. A pre-compression
+        // checkpoint is the fail-closed evidence boundary, so make this one
+        // transaction FULL-durable before acknowledging it.
+        connection.pragma_update(None, "synchronous", "FULL")?;
+        let write_result = (|| -> Result<(), StorageError> {
+            let transaction = connection.transaction()?;
+            let session_id = ensure_session(&transaction, project_id, session_id)?;
+            transaction.execute(
+                "INSERT INTO checkpoints(row_id, id, project_id, session_id, content_sha256, raw_blob_zstd)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(project_id, session_id, content_sha256) DO NOTHING",
+                params![
+                    Uuid::now_v7().to_string(),
+                    id,
+                    project_id.to_string(),
+                    session_id,
+                    digest,
+                    compressed
+                ],
+            )?;
+            transaction.commit()?;
+            Ok(())
+        })();
+        let reset_result = connection.pragma_update(None, "synchronous", "NORMAL");
+        write_result?;
+        reset_result?;
         Ok(id)
     }
 

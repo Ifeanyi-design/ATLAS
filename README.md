@@ -27,8 +27,10 @@ The installer:
 3. installs the profile-owned binary under
    `$HERMES_HOME/memory-palace/bin/`;
 4. installs a CLI copy under `${MEMORY_PALACE_BIN_DIR:-$HOME/.local/bin}`;
-5. installs the thin provider under `$HERMES_HOME/plugins/memory-palace/`;
-6. runs `memory-palace doctor` against the profile database.
+5. installs the thin provider and context-engine adapters under
+   `$HERMES_HOME/plugins/`;
+6. enables both adapters and selects them in Hermes when `hermes` is available;
+7. runs `memory-palace doctor` against the profile database.
 
 It does not use `sudo`, modify system directories, install Docker, or ask for
 credentials. A Rust toolchain and native C compiler are currently required while
@@ -48,15 +50,20 @@ run it with `sh`.
 
 ## Hermes configuration
 
-Select the provider in the active Hermes profile:
+The installer selects both adapters in the active Hermes profile:
 
 ```yaml
 memory:
   provider: memory-palace
 
-compression:
-  checkpoint_required: true
+context:
+  engine: memory-palace
 ```
+
+Hermes v0.20.3 treats memory-provider pre-compression hooks as advisory. The
+Memory Palace context engine therefore enforces the destructive boundary
+itself: it synchronously creates a FULL-durable, content-addressed checkpoint
+and returns the original transcript unchanged if archival fails.
 
 The provider uses the `hermes_home` value supplied by Hermes. It connects to:
 
@@ -84,7 +91,11 @@ $HERMES_HOME/memory-palace/log/daemon.log
 - versioned JSON requests over a permission-restricted Unix domain socket;
 - SHA-256-addressed, zstd-compressed, idempotent checkpoints;
 - recoverable zstd archives for completed turns and large tool results;
-- non-blocking completed-turn ingestion from Hermes;
+- non-blocking completed-turn ingestion and per-tool evidence extraction in Rust;
+- bounded automatic prefetch capsules from project decisions and prior evidence;
+- deterministic request-time context selection with explicit token budgets;
+- archival and compact replacement of stale large tool results;
+- fail-open request selection and fail-closed persistent compression;
 - Hermes tools for decision logging, search, editing, deletion, conflict
   overrides, and archived evidence recovery;
 - Hermes pre-compression checkpoint API v2;
@@ -106,7 +117,7 @@ memory-palace search "sqlite" --project my-project
 ## Architecture
 
 ```text
-Hermes MemoryProvider
+Hermes MemoryProvider + ContextEngine
         |
         | standard-library Python client
         v
@@ -125,9 +136,10 @@ and SQLite storage. Current distribution is Unix-native and package-manager
 agnostic: it does not assume a particular Linux distribution, systemd, Homebrew,
 or another OS package manager.
 
-Hermes currently discovers memory providers and context engines independently.
-The initial adapter implements the memory-provider side. Context selection will
-ship as a separate Hermes-facing plugin sharing the same daemon and protocol.
+Hermes discovers memory providers and context engines independently. The
+installer therefore deploys two Hermes-facing plugin directories sharing the
+same daemon protocol; all storage, retrieval, archival, and selection logic
+remains in Rust.
 
 See:
 
@@ -141,7 +153,7 @@ See:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-python3 -m unittest discover -s tests -p 'test_hermes_client.py' -v
+python3 -m unittest discover -s tests -p 'test_hermes*.py' -v
 cargo build --release
 ./target/release/memory-palace --home /tmp/memory-palace-dev doctor
 ```
